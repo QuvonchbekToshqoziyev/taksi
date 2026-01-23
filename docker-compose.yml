@@ -24,17 +24,16 @@ services:
       - "3000:3000"
     depends_on:
       - db
-      - redis
     volumes:
       - uploads_data:/app/core/uploads
     command: >
       sh -c "
-       npx prisma@6 generate &&
+        npx prisma@6 generate &&
         npx prisma@6 migrate deploy &&
         npm run start:prod
       "
     environment:
-      DATABASE_URL: postgres://postgres:2008@db:5432/taxiMonitor_db
+      DATABASE_URL: postgresql://postgres:2008@db:5432/taxiMonitor_db
 
 volumes:
   postgres_data:
