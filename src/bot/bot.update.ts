@@ -258,22 +258,42 @@ export class BotUpdate {
     // ================= FILTER =================
 
     private DRIVER_WORDS = [
+        // lotin
         'olamiz',
         'odam olamiz',
         'pochta olamiz',
         'yolovchi olamiz',
         'taksi bor',
+        'taxi bor',
         'mashina bor',
         'mashina bormi',
         'bosh mashina bor',
         'bosh taksi bor',
         'kim ketadi',
         'kim boradi',
+
+        // кирилл
+        'оламиз',
+        'одам оламиз',
+        'почта оламиз',
+        'йўловчи оламиз',
+        'такси бор',
+        'машина бор',
+        'машина борми',
+        'бош машина бор',
+        'бош такси бор',
+        'ким кетади',
+        'ким боради',
     ];
 
     private CLIENT_WORDS = [
+        // lotin
         'taksi kerak',
         'taxi kerak',
+        'taksi kere',
+        'taxi kere',
+        'kerak',
+        'kere',
         'zakaz',
         'zakaz bor',
         'odam bor',
@@ -282,6 +302,19 @@ export class BotUpdate {
         'srochni',
         'hozirga',
         'xozirga',
+
+        // кирилл
+        'такси керак',
+        'такси кере',
+        'керак',
+        'кере',
+        'заказ',
+        'заказ бор',
+        'одам бор',
+        'киши бор',
+        'почта бор',
+        'срочни',
+        'хозирга',
     ];
 
     private isTaxiOrder(text: string): boolean {
