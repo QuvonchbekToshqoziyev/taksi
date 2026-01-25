@@ -1,228 +1,4 @@
-// import { Command, Ctx, On, Update } from 'nestjs-telegraf';
-// import { Context } from 'telegraf';
-// import { RedirectService } from '../redirect/redirect.service';
-// import { AdminService } from 'src/admin/admin.service';
 
-// type SafeContext = Context & {
-//     chat: {
-//         id: number;
-//         type: 'private' | 'group' | 'supergroup' | 'channel';
-//         title?: string;
-//     };
-//     from: {
-//         id: number;
-//         username?: string;
-//         first_name?: string;
-//     };
-//     message: any;
-// };
-
-// @Update()
-// export class BotUpdate {
-//     constructor(
-//         private readonly redirectService: RedirectService,
-//         private readonly adminService: AdminService,
-//     ) { }
-
-//     private waitingRedirect = new Set<number>();
-
-//     private waitingPhone = new Map<number, {
-//         text: string;
-//         chatId: number;
-//         messageId: number;
-//     }>();
-
-//     // ================= START =================
-
-//     @Command('start')
-//     async start(@Ctx() ctx: SafeContext) {
-//         if (ctx.chat.type !== 'private') return;
-
-//         if (this.waitingPhone.has(ctx.from.id)) {
-//             return ctx.telegram.sendMessage(
-//                 ctx.chat.id,
-//                 '📞 Telefon raqamingizni yuboring',
-//                 {
-//                     reply_markup: {
-//                         keyboard: [
-//                             [{ text: '📲 Raqamni yuborish', request_contact: true }]
-//                         ],
-//                         resize_keyboard: true,
-//                         one_time_keyboard: true
-//                     }
-//                 }
-//             );
-//         }
-
-//         if (await this.adminService.isAdmin(ctx)) {
-//             return ctx.telegram.sendMessage(ctx.chat.id, '👋 Salom Admin!\n/admin yozib panelni oching.');
-//         }
-
-//         return ctx.telegram.sendMessage(ctx.chat.id, '👋 Salom! Taxi botga xush kelibsiz.');
-//     }
-
-//     // ================= ADMIN PANEL =================
-
-//     @Command('admin')
-//     async adminPanel(@Ctx() ctx: SafeContext) {
-//         if (ctx.chat.type !== 'private') return;
-//         if (!(await this.adminService.isAdmin(ctx))) return;
-
-//         return ctx.telegram.sendMessage(
-//             ctx.chat.id,
-//             '🔧 Admin panel:',
-//             {
-//                 reply_markup: {
-//                     keyboard: [
-//                         [{ text: '➕ Redirect qo\'shish' }],
-//                         [{ text: '➖ Redirect o\'chirish' }],
-//                         [{ text: '🗑 Delete ON' }, { text: '📌 Delete OFF' }],
-//                     ],
-//                     resize_keyboard: true
-//                 }
-//             }
-//         );
-//     }
-
-//     // ================= TEXT =================
-
-//     @On('text')
-//     async onText(@Ctx() ctx: SafeContext) {
-//         const text = ctx.message.text;
-
-//         // ===== ADMIN =====
-//         if (ctx.chat.type === 'private' && (await this.adminService.isAdmin(ctx))) {
-
-//             if (text === '➕ Redirect qo\'shish') {
-//                 this.waitingRedirect.add(ctx.from.id);
-//                 return ctx.telegram.sendMessage(ctx.chat.id, 'Guruh yoki kanal @username yuboring');
-//             }
-
-//             if (this.waitingRedirect.has(ctx.from.id)) {
-//                 try {
-//                     const chat = await ctx.telegram.getChat(text.trim());
-//                     const title = (chat as any).title || (chat as any).username || 'No title';
-
-//                     await this.redirectService.addGroup({
-//                         chatId: String(chat.id),
-//                         title,
-//                         addedById: ctx.from.id,
-//                     });
-
-//                     this.waitingRedirect.delete(ctx.from.id);
-//                     return ctx.telegram.sendMessage(ctx.chat.id, `✅ ${title} qo‘shildi`);
-//                 } catch {
-//                     return ctx.telegram.sendMessage(ctx.chat.id, '❌ Bot guruhda admin bo‘lishi shart');
-//                 }
-//             }
-//         }
-
-//         // ===== USER =====
-//         if (ctx.chat.type === 'private') return;
-//         if (!this.containsKeyword(text)) return;
-
-//         const phone = this.extractPhone(text);
-
-//         if (phone) {
-//             await this.forwardAll(ctx, phone);
-//             return;
-//         }
-
-//         this.waitingPhone.set(ctx.from.id, {
-//             text,
-//             chatId: ctx.chat.id,
-//             messageId: ctx.message.message_id,
-//         });
-
-//         const botUsername = process.env.BOT_USERNAME;
-
-//         await ctx.telegram.sendMessage(
-//             ctx.chat.id,
-//             `${ctx.from.first_name}, raqamingizni yuboring:`,
-//             {
-//                 reply_markup: {
-//                     inline_keyboard: [
-//                         [{ text: '📲 Raqamni yuborish', url: `https://t.me/${botUsername}?start=send_phone` }]
-//                     ]
-//                 }
-//             }
-//         );
-//     }
-
-//     // ================= CONTACT =================
-
-//     @On('contact')
-//     async onContact(@Ctx() ctx: any) {
-//         if (ctx.chat.type !== 'private') return;
-
-//         const contact = ctx.message.contact;
-
-//         if (contact.user_id !== ctx.from.id) {
-//             return ctx.telegram.sendMessage(ctx.chat.id, '❌ Faqat o‘zingizning raqamingizni yuboring');
-//         }
-
-//         const data = this.waitingPhone.get(ctx.from.id);
-//         if (!data) return;
-
-//         this.waitingPhone.delete(ctx.from.id);
-
-//         await this.forwardAll(ctx, contact.phone_number, data);
-//     }
-
-//     // ================= CORE FORWARD =================
-
-//     private async forwardAll(
-//         ctx: any,
-//         phone: string,
-//         data?: { chatId: number; messageId: number }
-//     ) {
-//         const groups = await this.redirectService.getActiveGroups();
-//         let success = 0;
-
-//         for (const group of groups) {
-//             try {
-//                 const targetChatId = Number(group.chatId);
-
-//                 const fwd = await ctx.telegram.forwardMessage(
-//                     targetChatId,
-//                     data ? data.chatId : ctx.chat.id,
-//                     data ? data.messageId : ctx.message.message_id
-//                 );
-
-//                 const name = ctx.from.first_name || 'User';
-//                 const username = ctx.from.username ? `@${ctx.from.username}` : 'username yo‘q';
-
-//                 await ctx.telegram.sendMessage(
-//                     targetChatId,
-//                     `👤 ${name}\n${username}\n📞 ${phone}`,
-//                     { reply_to_message_id: fwd.message_id }
-//                 );
-
-//                 success++;
-//             } catch (e) {
-//                 console.log('XATO:', group.title, e.message);
-//             }
-//         }
-
-//         if (success > 0) {
-//             await ctx.telegram.sendMessage(
-//                 data ? data.chatId : ctx.chat.id,
-//                 `✅ Buyurtmangiz ${success} ta taxi kanalga yuborildi`
-//             );
-//         }
-//     }
-
-//     // ================= UTILS =================
-
-//     private containsKeyword(text: string) {
-//         return /(taxi|taksi|такси)/i.test(text);
-//     }
-
-//     private extractPhone(text: string): string | null {
-//         const match = text.match(/\+?998\d{9}/);
-//         return match ? match[0] : null;
-//     }
-// }import { Command, Ctx, On, Update } from 'nestjs-telegraf';
 import { Command, Ctx, On, Update } from 'nestjs-telegraf';
 import { AdminService } from 'src/admin/admin.service';
 import { Context, Markup } from 'telegraf';
@@ -253,7 +29,7 @@ export class BotUpdate {
     private waitingRedirect = new Set<number>();
     private waitingPhone = new Map<number, {
         chatId: number;
-        messageId: number;
+        text: string;
     }>();
     // ================= FILTER =================
 
@@ -295,6 +71,7 @@ export class BotUpdate {
         'kerak',
         'kere',
         'zakaz',
+        'Kamsamoldan saxovatga 1 kishi',
         'zakaz bor',
         'odam bor',
         'kishi bor',
@@ -307,6 +84,9 @@ export class BotUpdate {
         'такси керак',
         'такси кере',
         'керак',
+        'Камсамолдан саховатга 1 киши',
+        'Kamsamolga bir kishi',
+        'Камсамолга бир киши',
         'кере',
         'заказ',
         'заказ бор',
@@ -473,6 +253,10 @@ export class BotUpdate {
             return;
         }
 
+        this.waitingPhone.set(ctx.from.id, {
+            chatId: ctx.chat.id,
+            text: ctx.message.text,
+        });
         try {
             await ctx.telegram.deleteMessage(
                 ctx.chat.id,
@@ -482,10 +266,6 @@ export class BotUpdate {
             console.log('DELETE ORIGINAL ERROR:', e.message);
         }
 
-        this.waitingPhone.set(ctx.from.id, {
-            chatId: ctx.chat.id,
-            messageId: ctx.message.message_id,
-        });
 
         await ctx.reply(
             `${ctx.from.first_name}, raqamingizni yozib yuboring:`
@@ -503,60 +283,21 @@ export class BotUpdate {
         this.waitingPhone.delete(ctx.from.id);
         await this.forwardAll(ctx, ctx.message.contact.phone_number, data);
     }
-
-    @On('text')
-    async onPhoneText(@Ctx() ctx: any) {
-        const phone = this.extractPhone(ctx.message.text);
-        if (!phone) return;
-
-        const data = this.waitingPhone.get(ctx.from.id);
-        if (!data) return;
-
-        this.waitingPhone.delete(ctx.from.id);
-        try {
-            await ctx.telegram.deleteMessage(
-                ctx.chat.id,
-                ctx.message.message_id
-            );
-        } catch {
-
-        }
-
-        await this.forwardAll(ctx, phone, data);
-    }
     // ================= FORWARD =================
 
     private async forwardAll(ctx: any, phone: string, data?: any) {
         const groups = await this.redirectService.getActiveGroups();
         let success = 0;
+        let protected_count = 0;
 
-        // source har doim user yozgan joy
         const sourceChatId = data ? data.chatId : ctx.chat.id;
-        const sourceMessageId = data ? data.messageId : ctx.message.message_id;
-        const originalText = ctx.message.text || '';
+        const originalText = data ? data.text : (ctx.message.text || '');
 
         for (const g of groups) {
             const target = Number(g.chatId);
 
-            try {
-                // 1. oddiy forward
-                const fwd = await ctx.telegram.forwardMessage(
-                    target,
-                    sourceChatId,
-                    sourceMessageId
-                );
-
-                await ctx.telegram.sendMessage(
-                    target,
-                    `👤 ${ctx.from.first_name || ''}\n@${ctx.from.username || 'no_username'}\n📞 ${phone}`,
-                    { reply_to_message_id: fwd.message_id }
-                );
-
-                success++;
-
-            } catch (e) {
-
-                // 2. agar protected bo‘lsa → copy mode
+            if (data) {
+                // ✅ NOMERSIZ - COPY MODE
                 try {
                     await ctx.telegram.sendMessage(
                         target,
@@ -567,39 +308,90 @@ export class BotUpdate {
 📞 ${phone}`
                     );
                     success++;
-                } catch (err) {
-                    console.log('COPY ERROR:', g.title);
+                } catch (e: any) {
+                    // ✅ Agar protected bo'lsa - log qilish
+                    if (e.description?.includes('CHAT_WRITE_FORBIDDEN') ||
+                        e.description?.includes('protected')) {
+                        console.log('PROTECTED GROUP:', g.title);
+                        protected_count++;
+                    } else {
+                        console.log('COPY ERROR:', g.title, e.message);
+                    }
+                }
+            } else {
+                // ✅ NOMER BILAN - FORWARD MODE
+                try {
+                    const fwd = await ctx.telegram.forwardMessage(
+                        target,
+                        sourceChatId,
+                        ctx.message.message_id
+                    );
+
+                    await ctx.telegram.sendMessage(
+                        target,
+                        `👤 ${ctx.from.first_name || ''}\n@${ctx.from.username || 'no_username'}\n📞 ${phone}`,
+                        { reply_to_message_id: fwd.message_id }
+                    );
+
+                    success++;
+                } catch (e: any) {
+                    // Forward ishlamasa - copy
+                    try {
+                        await ctx.telegram.sendMessage(
+                            target,
+                            `${originalText}
+
+👤 ${ctx.from.first_name || ''}
+@${ctx.from.username || 'no_username'}
+📞 ${phone}`
+                        );
+                        success++;
+                    } catch (err: any) {
+                        // ✅ Agar protected bo'lsa - log qilish
+                        if (err.description?.includes('CHAT_WRITE_FORBIDDEN') ||
+                            err.description?.includes('protected')) {
+                            console.log('PROTECTED GROUP:', g.title);
+                            protected_count++;
+                        } else {
+                            console.log('BOTH FAILED:', g.title);
+                        }
+                    }
                 }
             }
         }
 
-        // 🔥 ORIGINAL E’LONNI O‘CHIRISH
-        if (success > 0) {
+        // ✅ Faqat NOMER BILAN buyurtmada o'chirish
+        if (!data && success > 0) {
             try {
                 await ctx.telegram.deleteMessage(
                     sourceChatId,
-                    sourceMessageId
+                    ctx.message.message_id
                 );
             } catch (e) {
-                console.log('DELETE ERROR: bot admin emas yoki huquq yo‘q');
+                console.log('DELETE ERROR: bot admin emas');
             }
         }
 
-        // const mention = `<a href="tg://user?id=${ctx.from.id}">${ctx.from.first_name || 'Foydalanuvchi'}</a>`;
+        // ✅ Javob (protected guruhlarga eslatma bilan)
+        let message = '';
+        if (success > 0) {
+            message = `✅ ${ctx.from.first_name || 'Foydalanuvchi'}, xabaringiz ${success} ta kanalga yuborildi`;
+            if (protected_count > 0) {
+                message += `\n⚠️ ${protected_count} ta himoyalangan guruhga yuborilmadi (botni admin qiling)`;
+            }
+        } else {
+            message = `❌ ${ctx.from.first_name || 'Foydalanuvchi'}, hech qaysi kanalga ketmadi`;
+            if (protected_count > 0) {
+                message += `\n⚠️ ${protected_count} ta guruh himoyalangan (botni admin qiling)`;
+            }
+        }
 
         await ctx.telegram.sendMessage(
             sourceChatId,
-            success > 0
-                ? `✅ ${ctx.from.first_name || 'Foydalanuvchi'}, xabaringiz taksistlarga yuborildi, tez orada sizga bog'lanishadi`
-                : `❌ ${ctx.from.first_name || 'Foydalanuvchi'}, hech qaysi kanalga ketmadi`,
-            {
-                parse_mode: 'HTML'
-            }
+            message,
+            { parse_mode: 'HTML' }
         );
-
-
     }
-
 
     // ================= CALLBACK =================
 
