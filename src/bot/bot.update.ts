@@ -29,7 +29,7 @@ export class BotUpdate {
     private waitingRedirect = new Set<number>();
     private waitingPhone = new Map<number, {
         chatId: number;
-        text: string;
+        forwardedMessageIds: number[];
     }>();
     // ================= FILTER =================
 
@@ -93,7 +93,7 @@ export class BotUpdate {
         'хозирга',
     ];
 
-    
+
     private isTaxiOrder(text: string): boolean {
         const t = text.toLowerCase();
 
@@ -236,7 +236,7 @@ export class BotUpdate {
                 console.log('DELETE PHONE ERROR:', e.message);
             }
 
-            await this.forwardAll(ctx, phoneFromText, waiting);
+            await this.sendPhoneToRedirects(ctx, phoneFromText, waiting);
             return;
         }
 
@@ -250,19 +250,25 @@ export class BotUpdate {
             return;
         }
 
+        // ✅ Darhol forward qilish
+        const forwardedIds = await this.forwardOrderToRedirects(ctx);
+
         this.waitingPhone.set(ctx.from.id, {
             chatId: ctx.chat.id,
-            text: ctx.message.text,
+            forwardedMessageIds: forwardedIds,
         });
+
+        // ✅ Original xabarni o'chirish
         try {
             await ctx.telegram.deleteMessage(
                 ctx.chat.id,
                 ctx.message.message_id
             );
         } catch (e) {
-            console.log('DELETE ORIGINAL ERROR:', e.message);
+            console.log('DELETE ZAKAZ ERROR:', e.message);
         }
 
+      
 
         await ctx.reply(
             `${ctx.from.first_name}, raqamingizni yozib yuboring:`
@@ -278,7 +284,7 @@ export class BotUpdate {
         if (!data) return;
 
         this.waitingPhone.delete(ctx.from.id);
-        await this.forwardAll(ctx, ctx.message.contact.phone_number, data);
+        await this.sendPhoneToRedirects(ctx, ctx.message.contact.phone_number, data);
     }
     // ================= FORWARD =================
 
@@ -383,11 +389,90 @@ export class BotUpdate {
             }
         }
 
-        await ctx.telegram.sendMessage(
+        const sentMessage= await ctx.telegram.sendMessage(
             sourceChatId,
             message,
             { parse_mode: 'HTML' }
         );
+
+        setTimeout(async () => {
+            try {
+                await ctx.telegram.deleteMessage(
+                    sourceChatId,
+                    sentMessage.message_id
+                );
+            } catch (e) {
+                console.log('AUTO DELETE ERROR:', e.message);
+            }
+        }, 5000)
+    }
+
+    // ================= FORWARD ORDER =================
+
+    private async forwardOrderToRedirects(ctx: any): Promise<number[]> {
+        const groups = await this.redirectService.getActiveGroups();
+        const forwardedIds: number[] = [];
+
+        for (const g of groups) {
+            const target = Number(g.chatId);
+
+            try {
+                const fwd = await ctx.telegram.forwardMessage(
+                    target,
+                    ctx.chat.id,
+                    ctx.message.message_id
+                );
+                forwardedIds.push(fwd.message_id);
+            } catch (e: any) {
+                console.log('FORWARD ORDER ERROR:', g.title, e.message);
+            }
+        }
+
+        return forwardedIds;
+    }
+
+    // ================= SEND PHONE =================
+
+    private async sendPhoneToRedirects(ctx: any, phone: string, data: any) {
+        const groups = await this.redirectService.getActiveGroups();
+        let success = 0;
+
+        for (let i = 0; i < groups.length; i++) {
+            const g = groups[i];
+            const target = Number(g.chatId);
+            const forwardedMsgId = data.forwardedMessageIds[i];
+
+            if (!forwardedMsgId) continue;
+
+            try {
+                await ctx.telegram.sendMessage(
+                    target,
+                    `👤 ${ctx.from.first_name || ''}\n@${ctx.from.username || 'no_username'}\n📞 ${phone}`,
+                    { reply_to_message_id: forwardedMsgId }
+                );
+                success++;
+            } catch (e: any) {
+                console.log('SEND PHONE ERROR:', g.title, e.message);
+            }
+        }
+
+        const message = success > 0
+            ? `✅ ${ctx.from.first_name || 'Foydalanuvchi'}, xabaringiz ${success} ta kanalga yuborildi`
+            : `❌ ${ctx.from.first_name || 'Foydalanuvchi'}, hech qaysi kanalga ketmadi`;
+
+        const sentMessage = await ctx.telegram.sendMessage(
+            data.chatId,
+            message,
+            { parse_mode: 'HTML' }
+        );
+
+        setTimeout(async () => {
+            try {
+                await ctx.telegram.deleteMessage(data.chatId, sentMessage.message_id);
+            } catch (e) {
+                console.log('AUTO DELETE ERROR:', e.message);
+            }
+        }, 5000);
     }
 
     // ================= CALLBACK =================
