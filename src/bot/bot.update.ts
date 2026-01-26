@@ -93,6 +93,7 @@ export class BotUpdate {
         'хозирга',
     ];
 
+    
     private isTaxiOrder(text: string): boolean {
         const t = text.toLowerCase();
 
