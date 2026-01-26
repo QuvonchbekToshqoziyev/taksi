@@ -465,6 +465,7 @@ export class BotUpdate {
             message,
             { parse_mode: 'HTML' }
         );
+        
 
         setTimeout(async () => {
             try {
