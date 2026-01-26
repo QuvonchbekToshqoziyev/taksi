@@ -70,6 +70,7 @@ export class BotUpdate {
         'taxi kere',
         'kerak',
         'kere',
+        'kk',
         'zakaz',
         'zakaz bor',
         'odam bor',
@@ -84,6 +85,7 @@ export class BotUpdate {
         'такси кере',
         'керак',
         'кере',
+        'кк',
         'заказ',
         'заказ бор',
         'одам бор',
@@ -465,7 +467,7 @@ export class BotUpdate {
             message,
             { parse_mode: 'HTML' }
         );
-        
+
 
         setTimeout(async () => {
             try {
