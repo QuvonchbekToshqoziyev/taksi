@@ -37,6 +37,7 @@ export class RedirectService {
         });
     }
 
+
     // MUHIM: update emas, updateMany
     async setDeleteFlag(chatId: string, value: boolean) {
         return this.prisma.redirectGroup.updateMany({
