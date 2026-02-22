@@ -141,8 +141,8 @@ export class BotUpdate {
             Markup.keyboard([
                 ['➕ Redirect qo\'shish'],
                 ['📋 Redirectlar'],
-                    ['🗑 Delete ON', '📌 Delete OFF'],
-                ]).resize()
+                ['🗑 Delete ON', '📌 Delete OFF'],
+            ]).resize()
         );
     }
 
@@ -156,144 +156,118 @@ export class BotUpdate {
         if (ctx.chat.type === 'private' && (await this.adminService.isAdmin(ctx))) {
 
             if (text === '➕ Redirect qo\'shish') {
-            this.waitingRedirect.add(ctx.from.id);
-            await ctx.reply('Guruh yoki kanal @username yuboring');
-            return;
-        }
+                this.waitingRedirect.add(ctx.from.id);
+                await ctx.reply('Guruh yoki kanal @username yuboring');
+                return;
+            }
 
-        if (text === '📋 Redirectlar') {
-            const groups = await this.redirectService.getActiveGroups();
-            if (!groups.length) {
-                await ctx.reply('Redirect yo\'q');
+            if (text === '📋 Redirectlar') {
+                const groups = await this.redirectService.getActiveGroups();
+                if (!groups.length) {
+                    await ctx.reply('Redirect yo\'q');
                     return;
+                }
+
+                const buttons = groups.map(g => [
+                    Markup.button.callback(g.title, `remove:${g.chatId}`)
+                ]);
+
+                await ctx.reply('Redirectlar:', Markup.inlineKeyboard(buttons));
+                return;
             }
 
-            const buttons = groups.map(g => [
-                Markup.button.callback(g.title, `remove:${g.chatId}`)
-            ]);
+            if (text === '🗑 Delete ON' || text === '📌 Delete OFF') {
+                const groups = await this.redirectService.getActiveGroups();
+                const buttons = groups.map(g => [
+                    Markup.button.callback(
+                        g.title,
+                        `delete:${g.chatId}:${text === '🗑 Delete ON' ? 'on' : 'off'}`
+                    )
+                ]);
 
-            await ctx.reply('Redirectlar:', Markup.inlineKeyboard(buttons));
-            return;
-        }
+                await ctx.reply('Qaysi redirect?', Markup.inlineKeyboard(buttons));
+                return;
+            }
 
-        if (text === '🗑 Delete ON' || text === '📌 Delete OFF') {
-            const groups = await this.redirectService.getActiveGroups();
-            const buttons = groups.map(g => [
-                Markup.button.callback(
-                    g.title,
-                    `delete:${g.chatId}:${text === '🗑 Delete ON' ? 'on' : 'off'}`
-                )
-            ]);
+            if (this.waitingRedirect.has(ctx.from.id)) {
+                try {
+                    let chatId: string;
+                    try {
+                        const chat = await ctx.telegram.getChat(text.trim());
+                        chatId = String(chat.id);
+                    } catch (err) {
+                        await ctx.reply(
+                            '⚠️ Private guruh bo\'lsa, bot guruhga qo\'shilgan bo\'lishi va biror xabar yuborilishi kerak. ' +
+                            'Keyin /getid yuboring va ID sini yuboring.'
+                        );
+                        return;
+                    }
 
-            await ctx.reply('Qaysi redirect?', Markup.inlineKeyboard(buttons));
-            return;
-        }
+                    await this.redirectService.addGroup({
+                        chatId,
+                        title: (ctx.message.chat?.title || text.trim()),
+                        addedById: ctx.from.id,
+                    });
 
-        if (this.waitingRedirect.has(ctx.from.id)) {
-            try {
-                const chat = await ctx.telegram.getChat(text.trim());
-
-                await this.redirectService.addGroup({
-                    chatId: String(chat.id),
-                    title: (chat as any).title || (chat as any).username,
-                    addedById: ctx.from.id,
-                });
-
-                this.waitingRedirect.delete(ctx.from.id);
-                await ctx.reply('✅ Redirect qo\'shildi');
+                    this.waitingRedirect.delete(ctx.from.id);
+                    await ctx.reply('✅ Redirect qo\'shildi');
                 } catch {
-                await ctx.reply('❌ Bot redirect kanalida admin emas');
+                    await ctx.reply('❌ Bot redirect kanalida admin emas yoki xatolik yuz berdi');
+                }
+                return;
             }
-            return;
         }
-    }
 
-    /* ===== USER ===== */
 
-    // ✅ Private chatda ham zakaz qabul qilish
-    const isPrivate = ctx.chat.type === 'private';
-    const isAdmin = await this.adminService.isAdmin(ctx);
+        /* ===== USER ===== */
 
-    // Agar private va admin bo'lsa - yuqoridagi admin komandalar ishlaydi
-    if(isPrivate && isAdmin) {
-    return; // Admin komandalar bajarilgan
-}
+        // ✅ Private chatda ham zakaz qabul qilish
+        const isPrivate = ctx.chat.type === 'private';
+        const isAdmin = await this.adminService.isAdmin(ctx);
 
-// redirect joylarda jim (faqat guruh/kanal uchun)
-if (!isPrivate) {
-    const groups = await this.redirectService.getActiveGroups();
-    const redirectIds = groups.map(g => String(g.chatId));
-    if (redirectIds.includes(String(ctx.chat.id))) return;
-}
+        // Agar private va admin bo'lsa - yuqoridagi admin komandalar ishlaydi
+        if (isPrivate && isAdmin) {
+            return; // Admin komandalar bajarilgan
+        }
 
-// ✅ Zakaz tekshirish
-if (!this.isTaxiOrder(text)) {
-    // ✅ Private chatda zakaz so'zi bo'lmasa ham qabul qilish
-    if (!isPrivate) return;
-}
+        // redirect joylarda jim (faqat guruh/kanal uchun)
+        if (!isPrivate) {
+            const groups = await this.redirectService.getActiveGroups();
+            const redirectIds = groups.map(g => String(g.chatId));
+            if (redirectIds.includes(String(ctx.chat.id))) return;
+        }
 
-const phone = this.extractPhone(text);
+        // ✅ Zakaz tekshirish
+        if (!this.isTaxiOrder(text)) {
+            // ✅ Private chatda zakaz so'zi bo'lmasa ham qabul qilish
+            if (!isPrivate) return;
+        }
 
-// ✅ Raqam bor yoki yo'qligidan qat'iy nazar - forward qilish
-if (phone) {
-    await this.forwardAll(ctx, phone);
-} else {
-    await this.forwardOrderWithoutPhone(ctx);
-}
+        const phone = this.extractPhone(text);
+
+        // ✅ Raqam bor yoki yo'qligidan qat'iy nazar - forward qilish
+        if (phone) {
+            await this.forwardAll(ctx, phone);
+        } else {
+            await this.forwardOrderWithoutPhone(ctx);
+        }
     }
 
     // ================= FORWARD =================
 
-    private async forwardAll(ctx: any, phone: string, data ?: any) {
-    const groups = await this.redirectService.getActiveGroups();
-    let success = 0;
-    let protected_count = 0;
+    private async forwardAll(ctx: any, phone: string, data?: any) {
+        const groups = await this.redirectService.getActiveGroups();
+        let success = 0;
+        let protected_count = 0;
 
-    const sourceChatId = data ? data.chatId : ctx.chat.id;
-    const originalText = data ? data.text : (ctx.message.text || '');
+        const sourceChatId = data ? data.chatId : ctx.chat.id;
+        const originalText = data ? data.text : (ctx.message.text || '');
 
-    for (const g of groups) {
-        const target = Number(g.chatId);
+        for (const g of groups) {
+            const target = Number(g.chatId);
 
-        if (data) {
-            // ✅ NOMERSIZ - COPY MODE
-            try {
-                await ctx.telegram.sendMessage(
-                    target,
-                    `${originalText}
-
-👤 ${ctx.from.first_name || ''}
-@${ctx.from.username || 'no_username'}
-📞 ${phone}`
-                );
-                success++;
-            } catch (e: any) {
-                if (e.description?.includes('CHAT_WRITE_FORBIDDEN') ||
-                    e.description?.includes('protected')) {
-                    console.log('PROTECTED GROUP:', g.title);
-                    protected_count++;
-                } else {
-                    console.log('COPY ERROR:', g.title, e.message);
-                }
-            }
-        } else {
-            // ✅ NOMER BILAN - FORWARD MODE
-            try {
-                const fwd = await ctx.telegram.forwardMessage(
-                    target,
-                    sourceChatId,
-                    ctx.message.message_id
-                );
-
-                await ctx.telegram.sendMessage(
-                    target,
-                    `👤 ${ctx.from.first_name || ''}\n@${ctx.from.username || 'no_username'}\n📞 ${phone}`,
-                    { reply_to_message_id: fwd.message_id }
-                );
-
-                success++;
-            } catch (e: any) {
-                // Forward ishlamasa - copy
+            if (data) {
+                // ✅ NOMERSIZ - COPY MODE
                 try {
                     await ctx.telegram.sendMessage(
                         target,
@@ -302,6 +276,129 @@ if (phone) {
 👤 ${ctx.from.first_name || ''}
 @${ctx.from.username || 'no_username'}
 📞 ${phone}`
+                    );
+                    success++;
+                } catch (e: any) {
+                    if (e.description?.includes('CHAT_WRITE_FORBIDDEN') ||
+                        e.description?.includes('protected')) {
+                        console.log('PROTECTED GROUP:', g.title);
+                        protected_count++;
+                    } else {
+                        console.log('COPY ERROR:', g.title, e.message);
+                    }
+                }
+            } else {
+                // ✅ NOMER BILAN - FORWARD MODE
+                try {
+                    const fwd = await ctx.telegram.forwardMessage(
+                        target,
+                        sourceChatId,
+                        ctx.message.message_id
+                    );
+
+                    await ctx.telegram.sendMessage(
+                        target,
+                        `👤 ${ctx.from.first_name || ''}\n@${ctx.from.username || 'no_username'}\n📞 ${phone}`,
+                        { reply_to_message_id: fwd.message_id }
+                    );
+
+                    success++;
+                } catch (e: any) {
+                    // Forward ishlamasa - copy
+                    try {
+                        await ctx.telegram.sendMessage(
+                            target,
+                            `${originalText}
+
+👤 ${ctx.from.first_name || ''}
+@${ctx.from.username || 'no_username'}
+📞 ${phone}`
+                        );
+                        success++;
+                    } catch (err: any) {
+                        if (err.description?.includes('CHAT_WRITE_FORBIDDEN') ||
+                            err.description?.includes('protected')) {
+                            console.log('PROTECTED GROUP:', g.title);
+                            protected_count++;
+                        } else {
+                            console.log('BOTH FAILED:', g.title);
+                        }
+                    }
+                }
+            }
+        }
+
+        // ✅ Faqat NOMER BILAN buyurtmada o'chirish
+        if (!data && success > 0) {
+            try {
+                await ctx.telegram.deleteMessage(
+                    sourceChatId,
+                    ctx.message.message_id
+                );
+            } catch (e) {
+                console.log('DELETE ERROR: bot admin emas');
+            }
+        }
+
+        // ✅ Javob
+        let message = '';
+        if (success > 0) {
+            message = `✅ ${ctx.from.first_name || 'Foydalanuvchi'}, xabaringiz ${success} ta kanalga yuborildi`;
+            if (protected_count > 0) {
+                message += `\n⚠️ ${protected_count} ta himoyalangan guruhga yuborilmadi (botni admin qiling)`;
+            }
+        } else {
+            message = `❌ ${ctx.from.first_name || 'Foydalanuvchi'}, hech qaysi kanalga ketmadi`;
+            if (protected_count > 0) {
+                message += `\n⚠️ ${protected_count} ta guruh himoyalangan (botni admin qiling)`;
+            }
+        }
+
+        const sentMessage = await ctx.telegram.sendMessage(
+            sourceChatId,
+            message,
+            { parse_mode: 'HTML' }
+        );
+
+        setTimeout(async () => {
+            try {
+                await ctx.telegram.deleteMessage(
+                    sourceChatId,
+                    sentMessage.message_id
+                );
+            } catch (e) {
+                console.log('AUTO DELETE ERROR:', e.message);
+            }
+        }, 5000);
+    }
+
+    // ================= FORWARD WITHOUT PHONE =================
+
+    private async forwardOrderWithoutPhone(ctx: any) {
+        const groups = await this.redirectService.getActiveGroups();
+        let success = 0;
+        let protected_count = 0;
+
+        for (const g of groups) {
+            const target = Number(g.chatId);
+
+            try {
+                // ✅ Try forward first
+                await ctx.telegram.forwardMessage(
+                    target,
+                    ctx.chat.id,
+                    ctx.message.message_id
+                );
+                success++;
+            } catch (e: any) {
+                // Forward ishlamasa - copy
+                try {
+                    await ctx.telegram.sendMessage(
+                        target,
+                        `${ctx.message.text}
+
+👤 ${ctx.from.first_name || ''}
+@${ctx.from.username || 'no_username'}`
                     );
                     success++;
                 } catch (err: any) {
@@ -315,155 +412,74 @@ if (phone) {
                 }
             }
         }
-    }
 
-    // ✅ Faqat NOMER BILAN buyurtmada o'chirish
-    if (!data && success > 0) {
-        try {
-            await ctx.telegram.deleteMessage(
-                sourceChatId,
-                ctx.message.message_id
-            );
-        } catch (e) {
-            console.log('DELETE ERROR: bot admin emas');
-        }
-    }
-
-    // ✅ Javob
-    let message = '';
-    if (success > 0) {
-        message = `✅ ${ctx.from.first_name || 'Foydalanuvchi'}, xabaringiz ${success} ta kanalga yuborildi`;
-        if (protected_count > 0) {
-            message += `\n⚠️ ${protected_count} ta himoyalangan guruhga yuborilmadi (botni admin qiling)`;
-        }
-    } else {
-        message = `❌ ${ctx.from.first_name || 'Foydalanuvchi'}, hech qaysi kanalga ketmadi`;
-        if (protected_count > 0) {
-            message += `\n⚠️ ${protected_count} ta guruh himoyalangan (botni admin qiling)`;
-        }
-    }
-
-    const sentMessage = await ctx.telegram.sendMessage(
-        sourceChatId,
-        message,
-        { parse_mode: 'HTML' }
-    );
-
-    setTimeout(async () => {
-        try {
-            await ctx.telegram.deleteMessage(
-                sourceChatId,
-                sentMessage.message_id
-            );
-        } catch (e) {
-            console.log('AUTO DELETE ERROR:', e.message);
-        }
-    }, 5000);
-}
-
-    // ================= FORWARD WITHOUT PHONE =================
-
-    private async forwardOrderWithoutPhone(ctx: any) {
-    const groups = await this.redirectService.getActiveGroups();
-    let success = 0;
-    let protected_count = 0;
-
-    for (const g of groups) {
-        const target = Number(g.chatId);
-
-        try {
-            // ✅ Try forward first
-            await ctx.telegram.forwardMessage(
-                target,
-                ctx.chat.id,
-                ctx.message.message_id
-            );
-            success++;
-        } catch (e: any) {
-            // Forward ishlamasa - copy
+        // ✅ Original xabarni o'chirish
+        if (success > 0) {
             try {
-                await ctx.telegram.sendMessage(
-                    target,
-                    `${ctx.message.text}
-
-👤 ${ctx.from.first_name || ''}
-@${ctx.from.username || 'no_username'}`
+                await ctx.telegram.deleteMessage(
+                    ctx.chat.id,
+                    ctx.message.message_id
                 );
-                success++;
-            } catch (err: any) {
-                if (err.description?.includes('CHAT_WRITE_FORBIDDEN') ||
-                    err.description?.includes('protected')) {
-                    console.log('PROTECTED GROUP:', g.title);
-                    protected_count++;
-                } else {
-                    console.log('BOTH FAILED:', g.title);
-                }
+            } catch (e) {
+                console.log('DELETE ERROR: bot admin emas');
             }
         }
+
+        // ✅ Javob
+        let message = '';
+        if (success > 0) {
+            message = `✅ ${ctx.from.first_name || 'Foydalanuvchi'}, xabaringiz ${success} ta kanalga yuborildi`;
+            if (protected_count > 0) {
+                message += `\n⚠️ ${protected_count} ta himoyalangan guruhga yuborilmadi (botni admin qiling)`;
+            }
+        } else {
+            message = `❌ ${ctx.from.first_name || 'Foydalanuvchi'}, hech qaysi kanalga ketmadi`;
+            if (protected_count > 0) {
+                message += `\n⚠️ ${protected_count} ta guruh himoyalangan (botni admin qiling)`;
+            }
+        }
+
+        const sentMessage = await ctx.telegram.sendMessage(
+            ctx.chat.id,
+            message,
+            { parse_mode: 'HTML' }
+        );
+
+        setTimeout(async () => {
+            try {
+                await ctx.telegram.deleteMessage(
+                    ctx.chat.id,
+                    sentMessage.message_id
+                );
+            } catch (e) {
+                console.log('AUTO DELETE ERROR:', e.message);
+            }
+        }, 5000);
+    }
+    @Command('getid')
+    async getId(@Ctx() ctx: any) {
+        await ctx.reply(`Guruh ID: ${ctx.chat.id}`);
+        console.log('Guruh chat ID:', ctx.chat.id);
     }
 
-    // ✅ Original xabarni o'chirish
-    if (success > 0) {
-        try {
-            await ctx.telegram.deleteMessage(
-                ctx.chat.id,
-                ctx.message.message_id
-            );
-        } catch (e) {
-            console.log('DELETE ERROR: bot admin emas');
-        }
-    }
+    // ================= CALLBACK =================
 
-    // ✅ Javob
-    let message = '';
-    if (success > 0) {
-        message = `✅ ${ctx.from.first_name || 'Foydalanuvchi'}, xabaringiz ${success} ta kanalga yuborildi`;
-        if (protected_count > 0) {
-            message += `\n⚠️ ${protected_count} ta himoyalangan guruhga yuborilmadi (botni admin qiling)`;
-        }
-    } else {
-        message = `❌ ${ctx.from.first_name || 'Foydalanuvchi'}, hech qaysi kanalga ketmadi`;
-        if (protected_count > 0) {
-            message += `\n⚠️ ${protected_count} ta guruh himoyalangan (botni admin qiling)`;
-        }
-    }
+    @On('callback_query')
+    async onCallback(@Ctx() ctx: any) {
+        const data = ctx.callbackQuery.data;
 
-    const sentMessage = await ctx.telegram.sendMessage(
-        ctx.chat.id,
-        message,
-        { parse_mode: 'HTML' }
-    );
-
-    setTimeout(async () => {
-        try {
-            await ctx.telegram.deleteMessage(
-                ctx.chat.id,
-                sentMessage.message_id
-            );
-        } catch (e) {
-            console.log('AUTO DELETE ERROR:', e.message);
-        }
-    }, 5000);
-}
-
-// ================= CALLBACK =================
-
-@On('callback_query')
-async onCallback(@Ctx() ctx: any) {
-    const data = ctx.callbackQuery.data;
-
-    if (data.startsWith('remove:')) {
-        const chatId = data.split(':')[1];
-        await this.redirectService.removeGroup(chatId);
-        await ctx.answerCbQuery('O\'chirildi');
+        if (data.startsWith('remove:')) {
+            const chatId = data.split(':')[1];
+            await this.redirectService.removeGroup(chatId);
+            await ctx.answerCbQuery('O\'chirildi');
             await ctx.editMessageText('❌ Redirect o\'chirildi');
         }
 
-    if (data.startsWith('delete:')) {
-        const [, chatId, mode] = data.split(':');
-        await this.redirectService.setDeleteFlag(chatId, mode === 'on');
-        await ctx.answerCbQuery('Saqlandi');
-        await ctx.editMessageText('✅ O\'zgartirildi');
+        if (data.startsWith('delete:')) {
+            const [, chatId, mode] = data.split(':');
+            await this.redirectService.setDeleteFlag(chatId, mode === 'on');
+            await ctx.answerCbQuery('Saqlandi');
+            await ctx.editMessageText('✅ O\'zgartirildi');
         }
-}
+    }
 }
