@@ -28,81 +28,50 @@ export class BotUpdate {
     private waitingRedirect = new Set<number>();
 
     // ================= FILTER =================
-
-    private DRIVER_WORDS = [
-        // lotin
-        'olamiz',
-        'odam olamiz',
-        'pochta olamiz',
-        'yolovchi olamiz',
-        'taksi bor',
-        'taxi bor',
-        'mashina bor',
-        'mashina bormi',
-        'bosh mashina bor',
-        'bosh taksi bor',
-        'kim ketadi',
-        'kim boradi',
-
-        // кирилл
-        'оламиз',
-        'одам оламиз',
-        'почта оламиз',
-        'йўловчи оламиз',
-        'такси бор',
-        'машина бор',
-        'машина борми',
-        'бош машина бор',
-        'бош такси бор',
-        'ким кетади',
-        'ким боради',
+    private DRIVER_WORDS: string[] = [
+        'olamiz', 'odam olamiz', 'pochta olamiz', 'yolovchi olamiz',
+        'taksi bor', 'taxi bor', 'mashina bor', 'mashina bormi',
+        'bosh mashina bor', 'bosh taksi bor', 'kim ketadi', 'kim boradi',
+        'оламиз', 'одам оламиз', 'почта оламиз', 'йўловчи оламиз',
+        'такси бор', 'машина бор', 'машина борми', 'бош машина бор',
+        'бош такси бор', 'ким кетади', 'ким боради'
     ];
 
-    private CLIENT_WORDS = [
-        // lotin
-        'taksi kerak',
-        'taxi kerak',
-        'taksi kere',
-        'taxi kere',
-        'kerak',
-        'kere',
-        'kk',
-        'zakaz',
-        'zakaz bor',
-        'odam bor',
-        'kishi bor',
-        'pochta bor',
-        'srochni',
-        'hozirga',
-        'xozirga',
-
-        // кирилл
-        'такси керак',
-        'такси кере',
-        'керак',
-        'кере',
-        'кк',
-        'заказ',
-        'заказ бор',
-        'одам бор',
-        'киши бор',
-        'почта бор',
-        'срочни',
-        'хозирга',
+    private CLIENT_WORDS_SINGLE: string[] = [
+        'taksi kerak', 'taxi kerak', 'taksi kere', 'taxi kere',
+        'kerak', 'kere', 'kk', 'zakaz', 'zakaz bor',
+        'odam bor', 'kishi bor', 'pochta bor', 'srochni',
+        'hozirga', 'xozirga',
+        'такси керак', 'такси кере', 'керак', 'кк', 'заказ', 'заказ бор',
+        'одам бор', 'киши бор', 'почта бор', 'срочни', 'хозирга'
     ];
 
+    private CLIENT_WORDS_COMBO: string[][] = [
+        ['dandi oldida', '1 kishi'],
+        ['balnisani oldida', '2 kishi'],
+        ['stamatologia oldida', '1 kishi'],
+        ['eski xalq bank oldida', 'bir kishi'],
+        ['yangi bozorda', 'pochta bor'],
+        ['данди олдида', '1 киши'],
+        ['балнисанӣ олдида', '2 киши'],
+        ['стаматология олдида', '1 киши'],
+        ['эски халқ банк олдида', 'бир киши'],
+        ['янги бозорда', 'почта бор'],
+    ];
 
     private isTaxiOrder(text: string): boolean {
         const t = text.toLowerCase();
 
-        // 1. DRIVER → butunlay blok
         for (const w of this.DRIVER_WORDS) {
             if (t.includes(w)) return false;
         }
 
-        // 2. CLIENT → ruxsat
-        for (const w of this.CLIENT_WORDS) {
+        for (const w of this.CLIENT_WORDS_SINGLE) {
             if (t.includes(w)) return true;
+        }
+
+        for (const pattern of this.CLIENT_WORDS_COMBO) {
+            if (pattern.every(p => t.includes(p))) return true;
         }
 
         return false;
