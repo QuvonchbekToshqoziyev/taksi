@@ -482,14 +482,21 @@ export class BotUpdate {
   private waitingRedirect = new Set<number>();
 
   // ================= FILTER =================
-  private DRIVER_WORDS: string[] = [
-    'olamiz', 'odam olamiz', 'pochta olamiz', 'yolovchi olamiz',
-    'taksi bor', 'taxi bor', 'mashina bor', 'mashina bormi',
-    'bosh mashina bor', 'bosh taksi bor', 'kim ketadi', 'kim boradi',
-    'оламиз', 'одам оламиз', 'почта оламиз', 'йўловчи оламиз',
-    'такси бор', 'машина бор', 'машина борми', 'бош машина бор',
-    'бош такси бор', 'ким кетади', 'ким боради'
-  ];
+private DRIVER_WORDS: string[] = [
+  // Mavjud so'zlar...
+  'olamiz', 'odam olamiz', 'pochta olamiz', 'yolovchi olamiz',
+  'taksi bor', 'taxi bor', 'mashina bor', 'mashina bormi',
+  'bosh mashina bor', 'bosh taksi bor', 'kim ketadi', 'kim boradi',
+  'оламиз', 'одам оламиз', 'почта оламиз', 'йўловчи оламиз',
+  'такси бор', 'машина бор', 'машина борми', 'бош машина бор',
+  'бош такси бор', 'ким кетади', 'ким боради',
+
+  // Yangi qo'shilgan variantlar (Xabarlardan olingan)
+  'obketaman', 'olib ketaman', 'zakaz bor', 'zakazga', 'zakazga mashina',
+  'pochta zakaz', 'bosh moshin', 'mowina bor', 'tel +', 'obketamiz',
+  'обкетаман', 'олиб кетаман', 'заказ бор', 'заказга', 'бош мошин',
+  'мошина бор', 'почта заказ'
+];
 
   private CLIENT_WORDS_SINGLE: string[] = [
     'taksi kerak', 'taxi kerak', 'taksi kere', 'taxi kere',
@@ -511,6 +518,8 @@ export class BotUpdate {
     ['стаматология олдида', '1 киши'],
     ['эски халқ банк олдида', 'бир киши'],
     ['янги бозорда', 'pochta bor'],
+    ['kamsamoldan ped istutga 1 kishi bor'],
+    ['Towkenga ketadigan taksi bormi']
   ];
 
   private isTaxiOrder(text: string): boolean {
