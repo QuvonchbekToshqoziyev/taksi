@@ -622,22 +622,63 @@ ${username}${phone ? `\n📞 ${this.escapeHtml(phone)}` : ''}`;
   /**
    * SendMessage ham 429 bilan himoyalangan
    */
-  private async safeSendMessage(ctx: any, chatId: number, text: string, extra?: any) {
+  private async safeSendMessage(ctx: any, chatId: number | string, text: string, extra?: any) {
     return this.tgSafe(() => ctx.telegram.sendMessage(chatId, text, extra));
   }
 
   /**
    * Forward ham 429 bilan himoyalangan
    */
-  private async safeForward(ctx: any, targetId: number, sourceId: number, messageId: number) {
+  private async safeForward(ctx: any, targetId: number | string, sourceId: number | string, messageId: number) {
     return this.tgSafe(() => ctx.telegram.forwardMessage(targetId, sourceId, messageId));
   }
 
   /**
    * Delete ham 429 bilan himoyalangan
    */
-  private async safeDelete(ctx: any, chatId: number, messageId: number) {
+  private async safeDelete(ctx: any, chatId: number | string, messageId: number) {
     return this.tgSafe(() => ctx.telegram.deleteMessage(chatId, messageId));
+  }
+
+  private normalizeChatRef(raw: string): string {
+    const token =
+      (raw || '')
+        .trim()
+        .match(
+          /(@[A-Za-z0-9_]{5,}|-?\d{5,}|(?:https?:\/\/)?(?:t|telegram)\.me\/[^\s]+|tg:\/\/resolve\?domain=[^\s]+)/i,
+        )?.[0] || (raw || '').trim();
+
+    const value = token.replace(/[.,;!?]+$/, '');
+    if (!value) return value;
+
+    if (
+      value.includes('t.me/+') ||
+      value.includes('telegram.me/+') ||
+      value.includes('t.me/joinchat/') ||
+      value.includes('telegram.me/joinchat/')
+    ) {
+      throw new Error('INVITE_LINK_UNSUPPORTED');
+    }
+
+    const tgResolveMatch = value.match(/^tg:\/\/resolve\?domain=([A-Za-z0-9_]+)$/i);
+    if (tgResolveMatch) {
+      return `@${tgResolveMatch[1]}`;
+    }
+
+    const linkMatch = value.match(/^(?:https?:\/\/)?(?:t|telegram)\.me\/([A-Za-z0-9_]+)(?:[/?].*)?$/i);
+    if (linkMatch) {
+      return `@${linkMatch[1]}`;
+    }
+
+    if (/^-?\d+$/.test(value)) return value;
+    if (value.startsWith('@')) return value;
+    if (/^[A-Za-z0-9_]{5,}$/.test(value)) return `@${value}`;
+
+    return value;
+  }
+
+  private isRedirectTargetType(type?: string): boolean {
+    return type === 'group' || type === 'supergroup' || type === 'channel';
   }
 
   // ================= START =================
@@ -680,7 +721,12 @@ ${username}${phone ? `\n📞 ${this.escapeHtml(phone)}` : ''}`;
     if (ctx.chat.type === 'private' && (await this.adminService.isAdmin(ctx))) {
       if (text === '➕ Redirect qo\'shish') {
         this.waitingRedirect.add(ctx.from.id);
-        await this.tgSafe(() => ctx.reply('Guruh yoki kanal @username yuboring'));
+        await this.tgSafe(() =>
+          ctx.reply(
+            'Guruh/kanal @username yoki chat ID yuboring (-100...).\n' +
+              'Private bo‘lsa, o‘sha joydan bitta xabarni botga forward ham qilishingiz mumkin.',
+          ),
+        );
         return;
       }
 
@@ -714,31 +760,69 @@ ${username}${phone ? `\n📞 ${this.escapeHtml(phone)}` : ''}`;
 
       if (this.waitingRedirect.has(ctx.from.id)) {
         try {
-          let chatId: string;
+          const forwardedChat = (ctx.message as any)?.forward_from_chat;
+          let chatId = '';
+          let title = '';
 
-          try {
-            const chat = await this.tgSafe(() => ctx.telegram.getChat(text.trim()));
-            chatId = String(chat.id);
-          } catch (err) {
-            await this.tgSafe(() =>
-              ctx.reply(
-                '⚠️ Private guruh bo\'lsa, bot guruhga qo\'shilgan bo\'lishi va biror xabar yuborilishi kerak. ' +
-                  'Keyin /getid yuboring va ID sini yuboring.',
-              ),
-            );
-            return;
+          if (forwardedChat?.id) {
+            if (!this.isRedirectTargetType(forwardedChat.type)) {
+              await this.tgSafe(() =>
+                ctx.reply('❌ Faqat guruh/superguruh/kanal redirectga qo‘shiladi.'),
+              );
+              return;
+            }
+            chatId = String(forwardedChat.id);
+            title = forwardedChat.title || chatId;
+          } else {
+            const ref = this.normalizeChatRef(text);
+            const chat = await this.tgSafe(() => ctx.telegram.getChat(ref));
+
+            if (!this.isRedirectTargetType((chat as any)?.type)) {
+              await this.tgSafe(() =>
+                ctx.reply('❌ Faqat guruh/superguruh/kanal redirectga qo‘shiladi.'),
+              );
+              return;
+            }
+
+            chatId = String((chat as any).id);
+            title = (chat as any).title || ref;
           }
 
           await this.redirectService.addGroup({
             chatId,
-            title: (ctx.message.chat?.title || text.trim()),
+            title,
             addedById: ctx.from.id,
           });
 
           this.waitingRedirect.delete(ctx.from.id);
           await this.tgSafe(() => ctx.reply('✅ Redirect qo\'shildi'));
-        } catch {
-          await this.tgSafe(() => ctx.reply('❌ Bot redirect kanalida admin emas yoki xatolik yuz berdi'));
+        } catch (err: any) {
+          const desc = this.getErrDesc(err).toLowerCase();
+
+          if ((err as Error)?.message === 'INVITE_LINK_UNSUPPORTED') {
+            await this.tgSafe(() =>
+              ctx.reply('❌ Invite link ishlamaydi. @username yoki chat ID yuboring (-100...).'),
+            );
+            return;
+          }
+
+          if (
+            desc.includes('chat not found') ||
+            desc.includes('chat_id is empty') ||
+            desc.includes('bad request')
+          ) {
+            await this.tgSafe(() =>
+              ctx.reply(
+                '❌ Chat topilmadi.\n' +
+                  'Private joy bo‘lsa: botni admin qiling va chat ID yuboring (-100...) yoki shu chatdan xabarni botga forward qiling.',
+              ),
+            );
+            return;
+          }
+
+          await this.tgSafe(() =>
+            ctx.reply('❌ Bot redirect kanal/guruhida admin emas yoki xatolik yuz berdi'),
+          );
         }
         return;
       }
@@ -789,7 +873,7 @@ ${username}${phone ? `\n📞 ${this.escapeHtml(phone)}` : ''}`;
     const originalText = data ? data.text : (ctx.message.text || '');
 
     for (const g of groups) {
-      const target = Number(g.chatId);
+      const target = g.chatId;
 
       // 1) data bo'lsa (senda oldin "copy mode" edi) — shuni saqlaymiz
       if (data) {
@@ -864,13 +948,7 @@ ${username}${phone ? `\n📞 ${this.escapeHtml(phone)}` : ''}`;
     // ✅ Javob
     let message = '';
     if (success > 0) {
-      message = `✅ ${ctx.from.first_name || 'Foydalanuvchi'}, xabaringiz ${success} ta kanalga yuborildi`;
-      if (protected_count > 0) {
-        message += `\n⚠️ ${protected_count} ta joy “protected” yoki cheklangan bo‘lishi mumkin (forward bo‘lmadi, copy ham bo‘lmasligi mumkin)`;
-      }
-      if (writeForbidden > 0) {
-        message += `\n⛔ ${writeForbidden} ta joyga bot yozolmaydi (botni admin qiling / guruhga qo‘shing)`;
-      }
+      message = 'Assalomu alaykum, 3 minutda sizga ishonchli taksi jonataman';
     } else {
       message = `❌ ${ctx.from.first_name || 'Foydalanuvchi'}, hech qaysi kanalga ketmadi`;
       if (protected_count > 0) {
@@ -904,7 +982,7 @@ ${username}${phone ? `\n📞 ${this.escapeHtml(phone)}` : ''}`;
     let writeForbidden = 0;
 
     for (const g of groups) {
-      const target = Number(g.chatId);
+      const target = g.chatId;
 
       try {
         await this.safeForward(ctx, target, ctx.chat.id, ctx.message.message_id);
@@ -945,13 +1023,7 @@ ${username}${phone ? `\n📞 ${this.escapeHtml(phone)}` : ''}`;
     // ✅ Javob
     let message = '';
     if (success > 0) {
-      message = `✅ ${ctx.from.first_name || 'Foydalanuvchi'}, xabaringiz ${success} ta kanalga yuborildi`;
-      if (protected_count > 0) {
-        message += `\n⚠️ ${protected_count} ta joy “protected/cheklangan”`;
-      }
-      if (writeForbidden > 0) {
-        message += `\n⛔ ${writeForbidden} ta joyga bot yozolmaydi (botni admin qiling / guruhga qo‘shing)`;
-      }
+      message = 'Assalomu alaykum, 3 minutda sizga ishonchli taksi jonataman';
     } else {
       message = `❌ ${ctx.from.first_name || 'Foydalanuvchi'}, hech qaysi kanalga ketmadi`;
       if (protected_count > 0) {
