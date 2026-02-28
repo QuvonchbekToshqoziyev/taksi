@@ -472,6 +472,15 @@ type SafeContext = Context & {
   message: any;
 };
 
+type PendingPhoneOrder = {
+  chatId: number | string;
+  userId: number;
+  text: string;
+  sourceMessageId: number;
+  promptMessageId?: number;
+  createdAt: number;
+};
+
 @Update()
 export class BotUpdate {
   constructor(
@@ -480,6 +489,14 @@ export class BotUpdate {
   ) {}
 
   private waitingRedirect = new Set<number>();
+  private pendingPhoneOrders = new Map<string, PendingPhoneOrder>();
+  private readonly pendingPhoneTtlMs = 15 * 60 * 1000;
+  private readonly PHONE_PROMPT_FIRST = 'Assalomu alaykum, sizga taxi yuborishim uchun nomerizni yuboring';
+  private readonly PHONE_PROMPT_REPEAT = 'Rahmat, sizga taxi yuborishim uchun nomerizni yuboring';
+  private readonly FORCE_CLIENT_PHRASES: string[] = [
+    'gulistonga jam taxi bormi',
+    'gulistonga jam taksi bormi',
+  ];
 
   // ================= FILTER =================
 private DRIVER_WORDS: string[] = [
@@ -523,7 +540,14 @@ private DRIVER_WORDS: string[] = [
   ];
 
   private isTaxiOrder(text: string): boolean {
-    const t = (text || '').toLowerCase();
+    const t = (text || '')
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    for (const phrase of this.FORCE_CLIENT_PHRASES) {
+      if (t.includes(phrase)) return true;
+    }
 
     for (const w of this.DRIVER_WORDS) {
       if (t.includes(w)) return false;
@@ -543,6 +567,24 @@ private DRIVER_WORDS: string[] = [
   private extractPhone(text: string): string | null {
     const m = (text || '').match(/(\+?998\d{9}|\b(90|91|93|94|95|97|98|99)\d{7}\b)/);
     return m?.[0] || null;
+  }
+
+  private getPrankReply(text: string): string | null {
+    const t = (text || '').toLowerCase().replace(/\s+/g, ' ').trim();
+
+    if (/(^|\s)ketmiman(\s|$)|(^|\s)ketmayman(\s|$)/.test(t)) {
+      return 'Boshqa prikol qilma';
+    }
+
+    if (/(^|\s)prikol(\s|$)|(^|\s)hazil(\s|$)/.test(t)) {
+      return 'Prikolni keyin qilamiz, zakaz bo‘lsa yozing';
+    }
+
+    if (/(^|\s)lol(\s|$)|(^|\s)haha(\s|$)|(^|\s)hehe(\s|$)/.test(t)) {
+      return 'Yaxshi, endi zakaz bo‘lsa yozing';
+    }
+
+    return null;
   }
 
   // ================== SAFETY HELPERS (429 + DELAY + ERROR CHECK) ==================
@@ -640,6 +682,80 @@ ${username}${phone ? `\n📞 ${this.escapeHtml(phone)}` : ''}`;
     return this.tgSafe(() => ctx.telegram.deleteMessage(chatId, messageId));
   }
 
+  private pendingPhoneKey(chatId: number | string, userId: number) {
+    return `${chatId}:${userId}`;
+  }
+
+  private async safeDeleteSilently(ctx: any, chatId: number | string, messageId?: number) {
+    if (!messageId) return;
+    try {
+      await this.safeDelete(ctx, chatId, messageId);
+    } catch {
+      // jim
+    }
+  }
+
+  private async askPhoneAndStore(ctx: SafeContext, originalText: string) {
+    const key = this.pendingPhoneKey(ctx.chat.id, ctx.from.id);
+    const prev = this.pendingPhoneOrders.get(key);
+
+    if (prev?.promptMessageId) {
+      await this.safeDeleteSilently(ctx, ctx.chat.id, prev.promptMessageId);
+    }
+
+    const prompt = await this.safeSendMessage(
+      ctx,
+      ctx.chat.id,
+      this.PHONE_PROMPT_FIRST,
+    ) as any;
+
+    this.pendingPhoneOrders.set(key, {
+      chatId: ctx.chat.id,
+      userId: ctx.from.id,
+      text: originalText,
+      sourceMessageId: ctx.message.message_id,
+      promptMessageId: prompt?.message_id,
+      createdAt: Date.now(),
+    });
+  }
+
+  private async handlePendingPhoneReply(ctx: SafeContext, text: string): Promise<boolean> {
+    const key = this.pendingPhoneKey(ctx.chat.id, ctx.from.id);
+    const pending = this.pendingPhoneOrders.get(key);
+    if (!pending) return false;
+
+    if (Date.now() - pending.createdAt > this.pendingPhoneTtlMs) {
+      this.pendingPhoneOrders.delete(key);
+      return false;
+    }
+
+    const phone = this.extractPhone(text);
+    if (!phone) {
+      const prankReply = this.getPrankReply(text);
+      if (prankReply) {
+        await this.safeSendMessage(ctx, ctx.chat.id, prankReply);
+      }
+
+      await this.safeSendMessage(
+        ctx,
+        ctx.chat.id,
+        this.PHONE_PROMPT_REPEAT,
+      );
+      return true;
+    }
+
+    await this.forwardAll(ctx, phone, {
+      chatId: pending.chatId,
+      text: pending.text,
+      sourceMessageId: pending.sourceMessageId,
+      phoneMessageId: ctx.message.message_id,
+      promptMessageId: pending.promptMessageId,
+    });
+
+    this.pendingPhoneOrders.delete(key);
+    return true;
+  }
+
   private normalizeChatRef(raw: string): string {
     const token =
       (raw || '')
@@ -716,6 +832,13 @@ ${username}${phone ? `\n📞 ${this.escapeHtml(phone)}` : ''}`;
   @On('text')
   async onText(@Ctx() ctx: SafeContext) {
     const text = ctx.message?.text || '';
+    const commandText = text.trim();
+
+    // /getid har doim ishlasin (group/private), hatto umumiy text handler ichida ham
+    if (/^\/getid(?:@\w+)?$/i.test(commandText)) {
+      await this.tgSafe(() => ctx.reply(`Guruh ID: ${ctx.chat.id}`));
+      return;
+    }
 
     /* ===== ADMIN ===== */
     if (ctx.chat.type === 'private' && (await this.adminService.isAdmin(ctx))) {
@@ -830,9 +953,10 @@ ${username}${phone ? `\n📞 ${this.escapeHtml(phone)}` : ''}`;
 
     /* ===== USER ===== */
     const isPrivate = ctx.chat.type === 'private';
-    const isAdmin = await this.adminService.isAdmin(ctx);
-
-    if (isPrivate && isAdmin) return;
+    if (isPrivate) {
+      const isAdmin = await this.adminService.isAdmin(ctx);
+      if (isAdmin) return;
+    }
 
     // redirect joylarda jim (faqat guruh/kanal uchun)
     if (!isPrivate) {
@@ -841,8 +965,18 @@ ${username}${phone ? `\n📞 ${this.escapeHtml(phone)}` : ''}`;
       if (redirectIds.includes(String(ctx.chat.id))) return;
     }
 
+    if (await this.handlePendingPhoneReply(ctx, text)) return;
+
     // Zakaz tekshirish
     if (!this.isTaxiOrder(text)) {
+      const prankReply = this.getPrankReply(text);
+      if (prankReply) {
+        const sent = await this.safeSendMessage(ctx, ctx.chat.id, prankReply) as any;
+        setTimeout(async () => {
+          await this.safeDeleteSilently(ctx, ctx.chat.id, sent?.message_id);
+        }, 10000);
+      }
+
       if (!isPrivate) return;
     }
 
@@ -851,7 +985,8 @@ ${username}${phone ? `\n📞 ${this.escapeHtml(phone)}` : ''}`;
     if (phone) {
       await this.forwardAll(ctx, phone);
     } else {
-      await this.forwardOrderWithoutPhone(ctx);
+      await this.forwardOrderWithoutPhone(ctx, { suppressAck: true });
+      await this.askPhoneAndStore(ctx, text);
     }
   }
 
@@ -863,7 +998,17 @@ ${username}${phone ? `\n📞 ${this.escapeHtml(phone)}` : ''}`;
    * - 429 bo'lsa kutib qayta urinadi
    * - Har yuborishda delay
    */
-  private async forwardAll(ctx: any, phone: string, data?: any) {
+  private async forwardAll(
+    ctx: any,
+    phone: string,
+    data?: {
+      chatId: number | string;
+      text: string;
+      sourceMessageId?: number;
+      phoneMessageId?: number;
+      promptMessageId?: number;
+    },
+  ) {
     const groups = await this.redirectService.getActiveGroups();
     let success = 0;
     let protected_count = 0;
@@ -936,12 +1081,14 @@ ${username}${phone ? `\n📞 ${this.escapeHtml(phone)}` : ''}`;
       await this.tgDelay();
     }
 
-    // ✅ Faqat NOMER BILAN buyurtmada o'chirish
-    if (!data && success > 0) {
-      try {
-        await this.safeDelete(ctx, sourceChatId, ctx.message.message_id);
-      } catch {
-        // jim
+    // ✅ Muvaffaqiyatli bo'lsa client xabarlarini ham o'chirishga urinadi
+    if (success > 0) {
+      if (data) {
+        await this.safeDeleteSilently(ctx, sourceChatId, data.sourceMessageId);
+        await this.safeDeleteSilently(ctx, sourceChatId, data.phoneMessageId);
+        await this.safeDeleteSilently(ctx, sourceChatId, data.promptMessageId);
+      } else {
+        await this.safeDeleteSilently(ctx, sourceChatId, ctx.message.message_id);
       }
     }
 
@@ -965,7 +1112,7 @@ ${username}${phone ? `\n📞 ${this.escapeHtml(phone)}` : ''}`;
       try {
         await this.safeDelete(ctx, sourceChatId, sentMessage.message_id);
       } catch {}
-    }, 5000);
+    }, 10000);
   }
 
   // ================= FORWARD WITHOUT PHONE =================
@@ -975,7 +1122,7 @@ ${username}${phone ? `\n📞 ${this.escapeHtml(phone)}` : ''}`;
    * - 429-safe
    * - delay
    */
-  private async forwardOrderWithoutPhone(ctx: any) {
+  private async forwardOrderWithoutPhone(ctx: any, options?: { suppressAck?: boolean }) {
     const groups = await this.redirectService.getActiveGroups();
     let success = 0;
     let protected_count = 0;
@@ -1020,6 +1167,10 @@ ${username}${phone ? `\n📞 ${this.escapeHtml(phone)}` : ''}`;
       }
     }
 
+    if (options?.suppressAck) {
+      return;
+    }
+
     // ✅ Javob
     let message = '';
     if (success > 0) {
@@ -1040,7 +1191,7 @@ ${username}${phone ? `\n📞 ${this.escapeHtml(phone)}` : ''}`;
       try {
         await this.safeDelete(ctx, ctx.chat.id, sentMessage.message_id);
       } catch {}
-    }, 5000);
+    }, 10000);
   }
 
   @Command('getid')
