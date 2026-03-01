@@ -475,10 +475,10 @@ type SafeContext = Context & {
 type PendingPhoneOrder = {
   chatId: number | string;
   userId: number;
+  fullName: string;
   text: string;
   sourceMessageId: number;
   promptMessageId?: number;
-  createdAt: number;
 };
 
 @Update()
@@ -490,12 +490,12 @@ export class BotUpdate {
 
   private waitingRedirect = new Set<number>();
   private pendingPhoneOrders = new Map<string, PendingPhoneOrder>();
-  private readonly pendingPhoneTtlMs = 15 * 60 * 1000;
-  private readonly PHONE_PROMPT_FIRST = 'Assalomu alaykum, sizga taxi yuborishim uchun nomerizni yuboring';
-  private readonly PHONE_PROMPT_REPEAT = 'Rahmat, sizga taxi yuborishim uchun nomerizni yuboring';
+  private pendingPhoneReminderIntervals = new Map<string, ReturnType<typeof setInterval>>();
+  private readonly BOT_DELETE_MS = 20_000;
+  private readonly PHONE_PROMPT_INTERVAL_MS = 20_000;
   private readonly FORCE_CLIENT_PHRASES: string[] = [
-    'gulistonga jam taxi bormi',
-    'gulistonga jam taksi bormi',
+    'gulistonga  taxi bormi',
+    'gulistonga  taksi bormi',
   ];
 
   // ================= FILTER =================
@@ -695,6 +695,74 @@ ${username}${phone ? `\n📞 ${this.escapeHtml(phone)}` : ''}`;
     }
   }
 
+  private buildUserMention(userId: number, fullName: string) {
+    const safeName = this.escapeHtml(fullName || 'Mijoz');
+    return `<a href="tg://user?id=${userId}">${safeName}</a>`;
+  }
+
+  private buildPhonePrompt(userId: number, fullName: string, first: boolean) {
+    const mention = this.buildUserMention(userId, fullName);
+    if (first) {
+      return `${mention}, Assalomu alaykum, sizga taxi yuborishim uchun nomerizni yuboring`;
+    }
+    return `${mention}, Rahmat, sizga taxi yuborishim uchun nomerizni yuboring`;
+  }
+
+  private isStopPendingText(text: string): boolean {
+    const t = (text || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    return /k(e|i)rak\s*mas|kerakmas|kere\s*mas|keremas|kerak emas/.test(t);
+  }
+
+  private async sendAutoDeleteMessage(
+    ctx: any,
+    chatId: number | string,
+    text: string,
+    extra?: any,
+  ) {
+    const sent = await this.safeSendMessage(ctx, chatId, text, extra) as any;
+    setTimeout(async () => {
+      await this.safeDeleteSilently(ctx, chatId, sent?.message_id);
+    }, this.BOT_DELETE_MS);
+    return sent;
+  }
+
+  private stopPendingPhoneReminder(key: string) {
+    const timer = this.pendingPhoneReminderIntervals.get(key);
+    if (timer) {
+      clearInterval(timer);
+      this.pendingPhoneReminderIntervals.delete(key);
+    }
+  }
+
+  private clearPendingPhoneOrder(key: string) {
+    this.pendingPhoneOrders.delete(key);
+    this.stopPendingPhoneReminder(key);
+  }
+
+  private startPendingPhoneReminder(ctx: SafeContext, key: string) {
+    this.stopPendingPhoneReminder(key);
+
+    const timer = setInterval(async () => {
+      const pending = this.pendingPhoneOrders.get(key);
+      if (!pending) {
+        this.stopPendingPhoneReminder(key);
+        return;
+      }
+
+      const sent = await this.sendAutoDeleteMessage(
+        ctx,
+        pending.chatId,
+        this.buildPhonePrompt(pending.userId, pending.fullName, false),
+        { parse_mode: 'HTML' },
+      );
+
+      pending.promptMessageId = sent?.message_id;
+      this.pendingPhoneOrders.set(key, pending);
+    }, this.PHONE_PROMPT_INTERVAL_MS);
+
+    this.pendingPhoneReminderIntervals.set(key, timer);
+  }
+
   private async askPhoneAndStore(ctx: SafeContext, originalText: string) {
     const key = this.pendingPhoneKey(ctx.chat.id, ctx.from.id);
     const prev = this.pendingPhoneOrders.get(key);
@@ -703,20 +771,30 @@ ${username}${phone ? `\n📞 ${this.escapeHtml(phone)}` : ''}`;
       await this.safeDeleteSilently(ctx, ctx.chat.id, prev.promptMessageId);
     }
 
-    const prompt = await this.safeSendMessage(
+    const fullName =
+      `${ctx.from?.first_name || ''} ${ctx.from?.last_name || ''}`.trim() ||
+      ctx.from?.username ||
+      'Mijoz';
+
+    const prompt = await this.sendAutoDeleteMessage(
       ctx,
       ctx.chat.id,
-      this.PHONE_PROMPT_FIRST,
+      this.buildPhonePrompt(ctx.from.id, fullName, true),
+      { parse_mode: 'HTML' },
     ) as any;
+
+    this.clearPendingPhoneOrder(key);
 
     this.pendingPhoneOrders.set(key, {
       chatId: ctx.chat.id,
       userId: ctx.from.id,
+      fullName,
       text: originalText,
       sourceMessageId: ctx.message.message_id,
       promptMessageId: prompt?.message_id,
-      createdAt: Date.now(),
     });
+
+    this.startPendingPhoneReminder(ctx, key);
   }
 
   private async handlePendingPhoneReply(ctx: SafeContext, text: string): Promise<boolean> {
@@ -724,23 +802,28 @@ ${username}${phone ? `\n📞 ${this.escapeHtml(phone)}` : ''}`;
     const pending = this.pendingPhoneOrders.get(key);
     if (!pending) return false;
 
-    if (Date.now() - pending.createdAt > this.pendingPhoneTtlMs) {
-      this.pendingPhoneOrders.delete(key);
-      return false;
+    if (this.isStopPendingText(text)) {
+      this.clearPendingPhoneOrder(key);
+      await this.sendAutoDeleteMessage(ctx, ctx.chat.id, 'Xop');
+      return true;
     }
 
     const phone = this.extractPhone(text);
     if (!phone) {
       const prankReply = this.getPrankReply(text);
       if (prankReply) {
-        await this.safeSendMessage(ctx, ctx.chat.id, prankReply);
+        await this.sendAutoDeleteMessage(ctx, ctx.chat.id, prankReply);
       }
 
-      await this.safeSendMessage(
+      const sent = await this.sendAutoDeleteMessage(
         ctx,
         ctx.chat.id,
-        this.PHONE_PROMPT_REPEAT,
-      );
+        this.buildPhonePrompt(pending.userId, pending.fullName, false),
+        { parse_mode: 'HTML' },
+      ) as any;
+
+      pending.promptMessageId = sent?.message_id;
+      this.pendingPhoneOrders.set(key, pending);
       return true;
     }
 
@@ -752,7 +835,7 @@ ${username}${phone ? `\n📞 ${this.escapeHtml(phone)}` : ''}`;
       promptMessageId: pending.promptMessageId,
     });
 
-    this.pendingPhoneOrders.delete(key);
+    this.clearPendingPhoneOrder(key);
     return true;
   }
 
@@ -971,10 +1054,7 @@ ${username}${phone ? `\n📞 ${this.escapeHtml(phone)}` : ''}`;
     if (!this.isTaxiOrder(text)) {
       const prankReply = this.getPrankReply(text);
       if (prankReply) {
-        const sent = await this.safeSendMessage(ctx, ctx.chat.id, prankReply) as any;
-        setTimeout(async () => {
-          await this.safeDeleteSilently(ctx, ctx.chat.id, sent?.message_id);
-        }, 10000);
+        await this.sendAutoDeleteMessage(ctx, ctx.chat.id, prankReply);
       }
 
       if (!isPrivate) return;
@@ -1112,7 +1192,7 @@ ${username}${phone ? `\n📞 ${this.escapeHtml(phone)}` : ''}`;
       try {
         await this.safeDelete(ctx, sourceChatId, sentMessage.message_id);
       } catch {}
-    }, 10000);
+    }, this.BOT_DELETE_MS);
   }
 
   // ================= FORWARD WITHOUT PHONE =================
@@ -1191,7 +1271,7 @@ ${username}${phone ? `\n📞 ${this.escapeHtml(phone)}` : ''}`;
       try {
         await this.safeDelete(ctx, ctx.chat.id, sentMessage.message_id);
       } catch {}
-    }, 10000);
+    }, this.BOT_DELETE_MS);
   }
 
   @Command('getid')
