@@ -1145,7 +1145,11 @@ ${username}${phone ? `\n📞 ${this.escapeHtml(phone)}` : ''}`;
     // ✅ Javob
     let message = '';
     if (success > 0) {
-      message = 'Assalomu alaykum, 3 minutda sizga ishonchli taksi jonataman';
+      if (data?.phoneMessageId) {
+        message = 'Rahmat, 3 minutda sizga ishonchli taksi jonataman';
+      } else {
+        message = 'Assalomu alaykum, 3 minutda sizga ishonchli taksi jonataman';
+      }
     } else {
       message = `❌ ${ctx.from.first_name || 'Foydalanuvchi'}, hech qaysi kanalga ketmadi`;
       if (protected_count > 0) {
