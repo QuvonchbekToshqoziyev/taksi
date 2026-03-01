@@ -624,6 +624,11 @@ private DRIVER_WORDS: string[] = [
     return e?.response?.description || e?.description || e?.message || '';
   }
 
+  private isBlockedByUserError(e: any): boolean {
+    const d = this.getErrDesc(e).toLowerCase();
+    return d.includes('bot was blocked by the user') || d.includes('user is deactivated');
+  }
+
   private isWriteForbidden(e: any): boolean {
     const d = this.getErrDesc(e);
     return (
@@ -663,7 +668,14 @@ ${username}${phone ? `\n📞 ${this.escapeHtml(phone)}` : ''}`;
    * SendMessage ham 429 bilan himoyalangan
    */
   private async safeSendMessage(ctx: any, chatId: number | string, text: string, extra?: any) {
-    return this.tgSafe(() => ctx.telegram.sendMessage(chatId, text, extra));
+    try {
+      return await this.tgSafe(() => ctx.telegram.sendMessage(chatId, text, extra));
+    } catch (e: any) {
+      if (this.isBlockedByUserError(e)) {
+        return null;
+      }
+      throw e;
+    }
   }
 
   /**
@@ -1145,12 +1157,13 @@ ${username}${phone ? `\n📞 ${this.escapeHtml(phone)}` : ''}`;
     }
 
     const sentMessage = await this.safeSendMessage(ctx, sourceChatId, message, { parse_mode: 'HTML' }) as any;
-
-    setTimeout(async () => {
-      try {
-        await this.safeDelete(ctx, sourceChatId, sentMessage.message_id);
-      } catch {}
-    }, this.BOT_DELETE_MS);
+    if (sentMessage?.message_id) {
+      setTimeout(async () => {
+        try {
+          await this.safeDelete(ctx, sourceChatId, sentMessage.message_id);
+        } catch {}
+      }, this.BOT_DELETE_MS);
+    }
   }
 
   // ================= FORWARD WITHOUT PHONE =================
@@ -1224,12 +1237,13 @@ ${username}${phone ? `\n📞 ${this.escapeHtml(phone)}` : ''}`;
     }
 
     const sentMessage = await this.safeSendMessage(ctx, ctx.chat.id, message, { parse_mode: 'HTML' }) as any;
-
-    setTimeout(async () => {
-      try {
-        await this.safeDelete(ctx, ctx.chat.id, sentMessage.message_id);
-      } catch {}
-    }, this.BOT_DELETE_MS);
+    if (sentMessage?.message_id) {
+      setTimeout(async () => {
+        try {
+          await this.safeDelete(ctx, ctx.chat.id, sentMessage.message_id);
+        } catch {}
+      }, this.BOT_DELETE_MS);
+    }
   }
 
   @Command('getid')
