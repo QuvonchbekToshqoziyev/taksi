@@ -494,6 +494,8 @@ export class BotUpdate {
   private readonly FORCE_CLIENT_PHRASES: string[] = [
     'gulistonga taxi bormi',
     'gulistonga taksi bormi',
+    'toshkentdan kamsamolga taksi bormi',
+    'gulistondan kamsamolga taxi bormi',
   ];
 
   // ================= FILTER =================
@@ -507,19 +509,24 @@ private DRIVER_WORDS: string[] = [
   'бош такси бор', 'ким кетади', 'ким боради',
 
   // Yangi qo'shilgan variantlar (Xabarlardan olingan)
-  'obketaman', 'olib ketaman', 'zakaz bor', 'zakazga', 'zakazga mashina',
-  'pochta zakaz', 'bosh moshin', 'mowina bor', 'tel +', 'obketamiz',
-  'обкетаман', 'олиб кетаман', 'заказ бор', 'заказга', 'бош мошин',
-  'мошина бор', 'почта заказ'
+  'obketaman', 'olib ketaman', 'obketamiz',
+  'bosh moshin', 'mowina bor', 'tel +',
+  'обкетаман', 'олиб кетаман', 'бош мошин',
+  'мошина бор'
 ];
 
   private CLIENT_WORDS_SINGLE: string[] = [
     'taksi kerak', 'taxi kerak', 'taksi kere', 'taxi kere',
     'kerak', 'kere', 'kk', 'zakaz', 'zakaz bor',
     'odam bor', 'kishi bor', 'pochta bor', 'srochni',
+    'taksi bormi', 'taxi bormi', 'mashina bormi', 'moshina bormi',
+    'srochna', 'dastavka bor', 'dostavka bor',
+    'bir kishi', 'bir odam', '1 kishi', '1kishi', '2kishi', 'kishimiz',
+    'kshi bor', 'kiwi bor', 'yolkira',
     'hozirga', 'xozirga',
     'такси керак', 'такси кере', 'керак', 'кк', 'заказ', 'заказ бор',
-    'одам бор', 'киши бор', 'почта bor', 'срочни', 'хозирга'
+    'одам бор', 'киши бор', 'почта bor', 'срочни', 'срочна', 'хозирга',
+    'гулистонга бир киши', 'гулистонга 1 кши', 'шахарга бир киши'
   ];
 
   private CLIENT_WORDS_COMBO: string[][] = [
@@ -534,30 +541,94 @@ private DRIVER_WORDS: string[] = [
     ['эски халқ банк олдида', 'бир киши'],
     ['янги бозорда', 'pochta bor'],
     ['kamsamoldan ped istutga 1 kishi bor'],
-    ['Towkenga ketadigan taksi bormi']
+    ['Towkenga ketadigan taksi bormi'],
+    ['kamsamoldan', 'gulistonga'],
+    ['gulistondan', 'kamsamolga'],
+    ['toshkentdan', 'kamsamolga'],
+    ['kamsamoldan', 'toshkentga'],
+    ['toshkendan', 'kamsamolga'],
+    ['lelndan', 'kamsamulga', 'pochta bor'],
+    ['лелндан', 'камсамулга', 'почта бор']
   ];
 
-  private isTaxiOrder(text: string): boolean {
-    const t = (text || '')
+  private LOCATION_HINTS: string[] = [
+    'kamsamol', 'kamsamul', 'камсамол', 'камсамул',
+    'guliston', 'гулистон',
+    'toshkent', 'toshken', 'тошкент', 'тошкен',
+    'shahar', 'shaxar', 'waxar', 'шахар',
+    'lelin', 'lelndan', 'leln', 'лелин', 'лелн',
+  ];
+
+  private ORDER_SIGNAL_WORDS: string[] = [
+    'taksi', 'taxi', 'mashina', 'moshina', 'zakaz', 'zakazga',
+    'kk', 'kerak', 'kere', 'bormi', 'bor', 'srochna', 'srochni',
+    'pochta', 'dastavka', 'dostavka', 'yolkira',
+    'такси', 'машина', 'мошина', 'заказ', 'кк', 'керак', 'борми', 'бор',
+    'срочна', 'срочни', 'почта', 'доставка',
+  ];
+
+  private PASSENGER_WORDS: string[] = [
+    'kishi', 'odam', 'kshi', 'kiwi', 'kishimiz',
+    'киши', 'одам', 'кши', 'киви',
+  ];
+
+  private normalizeOrderText(text: string): string {
+    return (text || '')
       .toLowerCase()
+      .replace(/[ʻʼ’‘`']/g, '')
+      .replace(/(\p{N})(\p{L})/gu, '$1 $2')
+      .replace(/(\p{L})(\p{N})/gu, '$1 $2')
+      .replace(/[.,!?;:()[\]{}"]/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
+  }
 
-    for (const phrase of this.FORCE_CLIENT_PHRASES) {
-      if (t.includes(phrase)) return true;
-    }
+  private escapeRegex(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
 
-    for (const w of this.DRIVER_WORDS) {
-      if (t.includes(w)) return false;
-    }
+  private hasPhrase(text: string, phrase: string): boolean {
+    const p = this.normalizeOrderText(phrase);
+    if (!p) return false;
+    const body = this.escapeRegex(p).replace(/\s+/g, '\\s+');
+    const re = new RegExp(`(^|\\s)${body}(?=\\s|$)`, 'u');
+    return re.test(text);
+  }
 
-    for (const w of this.CLIENT_WORDS_SINGLE) {
-      if (t.includes(w)) return true;
+  private hasAnyPhrase(text: string, phrases: string[]): boolean {
+    for (const phrase of phrases) {
+      if (this.hasPhrase(text, phrase)) return true;
     }
+    return false;
+  }
+
+  private isTaxiOrder(text: string): boolean {
+    const t = this.normalizeOrderText(text);
+    if (!t) return false;
+
+    if (this.hasAnyPhrase(t, this.FORCE_CLIENT_PHRASES)) return true;
+
+    if (this.hasAnyPhrase(t, this.CLIENT_WORDS_SINGLE)) return true;
 
     for (const pattern of this.CLIENT_WORDS_COMBO) {
-      if (pattern.every(p => t.includes(p))) return true;
+      if (pattern.every(p => this.hasPhrase(t, p))) return true;
     }
+
+    const hasCountWithPassenger =
+      /(^|\s)\d+\s*(ta\s*)?(kishi|odam|kshi|kiwi|kishimiz|киши|одам|кши|киви)(?=\s|$)/u.test(t);
+    if (hasCountWithPassenger) return true;
+
+    if (this.hasAnyPhrase(t, this.DRIVER_WORDS)) return false;
+
+    const hasLocation = this.hasAnyPhrase(t, this.LOCATION_HINTS);
+    const hasSignal = this.hasAnyPhrase(t, this.ORDER_SIGNAL_WORDS);
+    const hasPassenger = this.hasAnyPhrase(t, this.PASSENGER_WORDS);
+    const hasFromTo =
+      /(^|\s)\p{L}{3,}(dan|дан)(?=\s|$)/u.test(t) &&
+      /(^|\s)\p{L}{3,}(ga|га)(?=\s|$)/u.test(t);
+
+    if (hasLocation && (hasSignal || hasPassenger)) return true;
+    if (hasFromTo && (hasSignal || hasPassenger)) return true;
 
     return false;
   }
