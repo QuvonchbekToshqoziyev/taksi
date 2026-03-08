@@ -26,6 +26,8 @@ describe('BotUpdate isTaxiOrder', () => {
       'Kamsamo‘ldan gulistonga 2kishimiz',
       'Waxarga dastavka bor',
       'Gulistondan kamsamolga 1 kishi',
+      'kamsamoldan gulistonga bormi',
+      'kamsamoldan gulistonga boraman',
     ];
 
     for (const text of samples) {
@@ -35,15 +37,45 @@ describe('BotUpdate isTaxiOrder', () => {
 
   it('rejects clear driver-side offers', () => {
     const samples = [
+      'taxi bor',
       'odam olamiz',
       'olib ketaman',
       'obketamiz',
       'bosh taksi bor',
       'kim ketadi',
+      'kamsamoldan gulistonga',
     ];
 
     for (const text of samples) {
       expect(isTaxiOrder(text)).toBe(false);
     }
+  });
+
+  it('does not forward non-orders in private chat', async () => {
+    const redirectService = { getActiveGroups: jest.fn().mockResolvedValue([]) };
+    const adminService = { isAdmin: jest.fn().mockResolvedValue(false) };
+    const localBot = new BotUpdate(redirectService as any, adminService as any);
+
+    const ctx = {
+      chat: { id: 1001, type: 'private' as const },
+      from: { id: 9001, first_name: 'User' },
+      message: { text: 'taxi bor', message_id: 77 },
+      telegram: {},
+      reply: jest.fn(),
+    } as any;
+
+    jest.spyOn(localBot as any, 'handlePendingPhoneReply').mockResolvedValue(false);
+
+    const forwardSpy = jest.spyOn(localBot as any, 'forwardAll').mockResolvedValue(undefined);
+    const withoutPhoneSpy = jest
+      .spyOn(localBot as any, 'forwardOrderWithoutPhone')
+      .mockResolvedValue(undefined);
+    const askPhoneSpy = jest.spyOn(localBot as any, 'askPhoneAndStore').mockResolvedValue(undefined);
+
+    await localBot.onText(ctx);
+
+    expect(forwardSpy).not.toHaveBeenCalled();
+    expect(withoutPhoneSpy).not.toHaveBeenCalled();
+    expect(askPhoneSpy).not.toHaveBeenCalled();
   });
 });

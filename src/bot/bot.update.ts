@@ -519,12 +519,13 @@ private DRIVER_WORDS: string[] = [
     'taksi kerak', 'taxi kerak', 'taksi kere', 'taxi kere',
     'kerak', 'kere', 'kk', 'zakaz', 'zakaz bor',
     'odam bor', 'kishi bor', 'pochta bor', 'srochni',
+    'bormi', 'boraman', 'boramiz',
     'taksi bormi', 'taxi bormi', 'mashina bormi', 'moshina bormi',
     'srochna', 'dastavka bor', 'dostavka bor',
     'bir kishi', 'bir odam', '1 kishi', '1kishi', '2kishi', 'kishimiz',
     'kshi bor', 'kiwi bor', 'yolkira',
     'hozirga', 'xozirga',
-    'такси керак', 'такси кере', 'керак', 'кк', 'заказ', 'заказ бор',
+    'такси керак', 'такси кере', 'такси борми', 'керак', 'кк', 'заказ', 'заказ бор',
     'одам бор', 'киши бор', 'почта bor', 'срочни', 'срочна', 'хозирга',
     'гулистонга бир киши', 'гулистонга 1 кши', 'шахарга бир киши'
   ];
@@ -542,34 +543,11 @@ private DRIVER_WORDS: string[] = [
     ['янги бозорда', 'pochta bor'],
     ['kamsamoldan ped istutga 1 kishi bor'],
     ['Towkenga ketadigan taksi bormi'],
-    ['kamsamoldan', 'gulistonga'],
-    ['gulistondan', 'kamsamolga'],
-    ['toshkentdan', 'kamsamolga'],
-    ['kamsamoldan', 'toshkentga'],
-    ['toshkendan', 'kamsamolga'],
+    ['kamsamoldan', 'gulistonga', 'bormi'],
+    ['kamsamoldan', 'gulistonga', 'boraman'],
+    ['камсамолдан', 'гулистонга', 'борми'],
     ['lelndan', 'kamsamulga', 'pochta bor'],
     ['лелндан', 'камсамулга', 'почта бор']
-  ];
-
-  private LOCATION_HINTS: string[] = [
-    'kamsamol', 'kamsamul', 'камсамол', 'камсамул',
-    'guliston', 'гулистон',
-    'toshkent', 'toshken', 'тошкент', 'тошкен',
-    'shahar', 'shaxar', 'waxar', 'шахар',
-    'lelin', 'lelndan', 'leln', 'лелин', 'лелн',
-  ];
-
-  private ORDER_SIGNAL_WORDS: string[] = [
-    'taksi', 'taxi', 'mashina', 'moshina', 'zakaz', 'zakazga',
-    'kk', 'kerak', 'kere', 'bormi', 'bor', 'srochna', 'srochni',
-    'pochta', 'dastavka', 'dostavka', 'yolkira',
-    'такси', 'машина', 'мошина', 'заказ', 'кк', 'керак', 'борми', 'бор',
-    'срочна', 'срочни', 'почта', 'доставка',
-  ];
-
-  private PASSENGER_WORDS: string[] = [
-    'kishi', 'odam', 'kshi', 'kiwi', 'kishimiz',
-    'киши', 'одам', 'кши', 'киви',
   ];
 
   private normalizeOrderText(text: string): string {
@@ -606,6 +584,9 @@ private DRIVER_WORDS: string[] = [
     const t = this.normalizeOrderText(text);
     if (!t) return false;
 
+    // Avval haydovchi iboralari: client bo'lmaganini aniq to'xtatamiz
+    if (this.hasAnyPhrase(t, this.DRIVER_WORDS)) return false;
+
     if (this.hasAnyPhrase(t, this.FORCE_CLIENT_PHRASES)) return true;
 
     if (this.hasAnyPhrase(t, this.CLIENT_WORDS_SINGLE)) return true;
@@ -613,22 +594,6 @@ private DRIVER_WORDS: string[] = [
     for (const pattern of this.CLIENT_WORDS_COMBO) {
       if (pattern.every(p => this.hasPhrase(t, p))) return true;
     }
-
-    const hasCountWithPassenger =
-      /(^|\s)\d+\s*(ta\s*)?(kishi|odam|kshi|kiwi|kishimiz|киши|одам|кши|киви)(?=\s|$)/u.test(t);
-    if (hasCountWithPassenger) return true;
-
-    if (this.hasAnyPhrase(t, this.DRIVER_WORDS)) return false;
-
-    const hasLocation = this.hasAnyPhrase(t, this.LOCATION_HINTS);
-    const hasSignal = this.hasAnyPhrase(t, this.ORDER_SIGNAL_WORDS);
-    const hasPassenger = this.hasAnyPhrase(t, this.PASSENGER_WORDS);
-    const hasFromTo =
-      /(^|\s)\p{L}{3,}(dan|дан)(?=\s|$)/u.test(t) &&
-      /(^|\s)\p{L}{3,}(ga|га)(?=\s|$)/u.test(t);
-
-    if (hasLocation && (hasSignal || hasPassenger)) return true;
-    if (hasFromTo && (hasSignal || hasPassenger)) return true;
 
     return false;
   }
@@ -1097,8 +1062,7 @@ ${username}${phone ? `\n📞 ${this.escapeHtml(phone)}` : ''}`;
       if (prankReply) {
         await this.sendAutoDeleteMessage(ctx, ctx.chat.id, prankReply);
       }
-
-      if (!isPrivate) return;
+      return;
     }
 
     const phone = this.extractPhone(text);
