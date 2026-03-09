@@ -3,14 +3,25 @@ import { TelegrafModule } from 'nestjs-telegraf';
 import { BotUpdate } from './bot.update';
 import { RedirectModule } from '../redirect/redirect.module';
 import { AdminModule } from 'src/admin/admin.module';
+import { TargetModule } from 'src/target/target.module';
+import { KeywordModule } from 'src/keyword/keyword.module';
+import { LocationModule } from 'src/location/location.module';
+import { AdminLogModule } from 'src/admin-log/admin-log.module';
+import { RideOrderModule } from 'src/ride-order/ride-order.module';
 
 @Module({
   imports: [
     TelegrafModule.forRoot({
       token: process.env.BOT_TOKEN!,
     }),
-    RedirectModule,AdminModule,RedirectModule
+    RedirectModule,
+    AdminModule,
+    TargetModule,
+    KeywordModule,
+    LocationModule,
+    AdminLogModule,
+    RideOrderModule,
   ],
   providers: [BotUpdate],
 })
-export class BotModule { }
+export class BotModule {}

@@ -5,10 +5,12 @@ services:
     image: postgres:15
     container_name: taxiMonitor_postgres
     restart: always
+    env_file:
+      - .env
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: 2008
-      POSTGRES_DB: taxiMonitor_db
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - "5432:5432"
     volumes:
@@ -21,7 +23,7 @@ services:
     env_file:
       - .env
     ports:
-      - "3000:3000"
+      - "${PORT}:${PORT}"
     depends_on:
       - db
     volumes:
@@ -33,7 +35,7 @@ services:
         npm run start:prod
       "
     environment:
-      DATABASE_URL: postgresql://postgres:2008@db:5432/taxiMonitor_db
+      DATABASE_URL: ${DATABASE_URL}
 
 volumes:
   postgres_data:

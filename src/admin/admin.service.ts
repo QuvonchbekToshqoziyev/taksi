@@ -23,7 +23,7 @@ export class AdminService implements OnModuleInit {
         const tgIdEnv = process.env.SUPERADMIN_TG_ID;
 
         if (!tgIdEnv) {
-            console.warn('⚠️ SUPERADMIN_TG_ID env yo‘q');
+            console.warn('⚠️ SUPERADMIN_TG_ID env yo\'q');
             return;
         }
 
@@ -48,7 +48,12 @@ export class AdminService implements OnModuleInit {
             console.log('ℹ️ Superadmin allaqachon mavjud');
         }
     }
-
+    async isSuperAdmin(userId: number): Promise<boolean> {
+        const admin = await this.prisma.botAdmin.findUnique({
+            where: { tgId: BigInt(userId) },
+        });
+        return !!admin?.isSuper;
+    }
     async isAdmin(ctx: TextContext): Promise<boolean> {
         // 1. Agar private chat bo‘lsa → faqat DB tekshiramiz
         if (ctx.chat.type === 'private') {

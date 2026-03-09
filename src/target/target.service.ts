@@ -2,21 +2,17 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 
 @Injectable()
-export class RedirectService {
-    constructor(private prisma: PrismaService) { }
+export class TargetService {
+    constructor(private prisma: PrismaService) {}
 
     getActiveGroups() {
-        return this.prisma.redirectGroup.findMany({
+        return this.prisma.targetGroup.findMany({
             where: { isActive: true },
         });
     }
 
-    async addGroup(data: {
-        chatId: string;
-        title: string;
-        addedById: number;
-    }) {
-        return this.prisma.redirectGroup.upsert({
+    async addGroup(data: { chatId: string; title: string }) {
+        return this.prisma.targetGroup.upsert({
             where: { chatId: data.chatId },
             update: {
                 title: data.title,
@@ -28,7 +24,7 @@ export class RedirectService {
     }
 
     async removeGroup(chatId: string) {
-        return this.prisma.redirectGroup.updateMany({
+        return this.prisma.targetGroup.updateMany({
             where: { chatId },
             data: {
                 isActive: false,
@@ -37,10 +33,10 @@ export class RedirectService {
         });
     }
 
-    async setDeleteFlag(chatId: string, value: boolean) {
-        return this.prisma.redirectGroup.updateMany({
+    async isTargetGroup(chatId: string): Promise<boolean> {
+        const group = await this.prisma.targetGroup.findUnique({
             where: { chatId },
-            data: { deleteOriginal: value },
         });
+        return !!group?.isActive;
     }
 }

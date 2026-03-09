@@ -27,8 +27,61 @@ model RedirectGroup {
   deleteOriginal Boolean @default(false)
 
   addedById BigInt
-  addedBy   BotAdmin @relation(fields: [addedById], references: [tgId])  // tgId ga o'zgardi!
+  addedBy   BotAdmin @relation(fields: [addedById], references: [tgId])
 
   addedAt   DateTime  @default(now())
   removedAt DateTime?
+}
+
+model TargetGroup {
+  id       Int     @id @default(autoincrement())
+  chatId   String  @unique
+  title    String
+  isActive Boolean @default(true)
+
+  addedAt   DateTime  @default(now())
+  removedAt DateTime?
+}
+
+model Keyword {
+  id      Int     @id @default(autoincrement())
+  phrase  String  @unique
+  type    String  // 'client' | 'driver'
+  addedAt DateTime @default(now())
+}
+
+model Location {
+  id        Int        @id @default(autoincrement())
+  name      String
+  parentId  Int?
+  parent    Location?  @relation("LocationTree", fields: [parentId], references: [id])
+  children  Location[] @relation("LocationTree")
+  isActive  Boolean    @default(true)
+  addedAt   DateTime   @default(now())
+
+  @@unique([name, parentId])
+}
+
+model AdminLog {
+  id            Int      @id @default(autoincrement())
+  adminTgId     BigInt
+  action        String   // 'add' | 'remove' | 'update'
+  targetType    String   // 'location' | 'redirect' | 'target' | 'keyword'
+  targetId      String
+  details       String?
+  previousValue String?
+  createdAt     DateTime @default(now())
+  restoredAt    DateTime?
+}
+
+model RideOrder {
+  id         Int      @id @default(autoincrement())
+  userTgId   BigInt
+  fromName   String
+  toName     String
+  passengers Int
+  phone      String
+  status     String   @default("active") // 'active' | 'completed' | 'cancelled'
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 }
