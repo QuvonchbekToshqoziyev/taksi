@@ -1198,7 +1198,10 @@ ${contactLine}${phoneLine}`;
     if (!reply) return;
 
     const normalized = text.trim().toLowerCase();
-    if (normalized !== 'olindi' && normalized !== 'otmen') return;
+    // Accept Latin and Cyrillic forms
+    const isOlindi = normalized === 'olindi' || normalized === 'олинди';
+    const isOtmen = normalized === 'otmen' || normalized === 'отмен';
+    if (!isOlindi && !isOtmen) return;
 
     // Check if the replied message is from the bot
     const botInfo = await ctx.telegram.getMe();
@@ -1213,9 +1216,21 @@ ${contactLine}${phoneLine}`;
     const order = await this.rideOrderService.getById(orderId);
     if (!order) return;
 
-    const driverName = `${ctx.from.first_name || ''} ${ctx.from.last_name || ''}`.trim() || 'Haydovchi';
+    const driverFirstName = ctx.from.first_name || '';
+    const driverLastName = ctx.from.last_name || '';
+    const driverName = `${driverFirstName} ${driverLastName}`.trim() || 'Haydovchi';
+    const driverUsername = ctx.from.username;
 
-    if (normalized === 'olindi') {
+    // Try to get driver's phone number
+    let driverPhone = '';
+    try {
+      const chat = await ctx.telegram.getChat(ctx.from.id);
+      if ('bio' in chat && (chat as any).phone_number) {
+        driverPhone = (chat as any).phone_number;
+      }
+    } catch { /* ignore */ }
+
+    if (isOlindi) {
       if (order.status !== 'pending') {
         await this.tgSafe(() => ctx.reply('⚠️ Bu buyurtma allaqachon qabul qilingan yoki tugallangan.', { reply_parameters: { message_id: ctx.message.message_id } }));
         return;
@@ -1226,22 +1241,31 @@ ${contactLine}${phoneLine}`;
         { parse_mode: 'HTML', reply_parameters: { message_id: reply.message_id } },
       ));
 
-      // Notify the user
+      // Build driver info for the user
+      let driverInfo =
+        `✅ <b>Buyurtma #${orderId} qabul qilindi!</b>\n\n` +
+        `🚗 <b>Haydovchi ma'lumotlari:</b>\n` +
+        `👤 <b>Ism:</b> <a href="tg://user?id=${ctx.from.id}">${this.escapeHtml(driverName)}</a>\n`;
+      if (driverUsername) {
+        driverInfo += `📱 <b>Telegram:</b> @${this.escapeHtml(driverUsername)}\n`;
+      }
+      if (driverPhone) {
+        driverInfo += `📞 <b>Telefon:</b> ${this.escapeHtml(driverPhone)}\n`;
+      }
+      driverInfo +=
+        `\n📍 ${this.escapeHtml(order.fromName)} → ${this.escapeHtml(order.toName)}\n` +
+        `👥 Yo'lovchilar: ${order.passengers}\n\n` +
+        `Safar tugagach "📋 Zakazlarim" bo'limidan tugatishingiz mumkin.`;
+
+      // Notify the user with driver details
       try {
-        await ctx.telegram.sendMessage(
-          Number(order.userTgId),
-          `✅ <b>Buyurtma #${orderId} qabul qilindi!</b>\n\n` +
-          `👤 Haydovchi: <a href="tg://user?id=${ctx.from.id}">${this.escapeHtml(driverName)}</a>\n` +
-          `📍 ${this.escapeHtml(order.fromName)} → ${this.escapeHtml(order.toName)}\n\n` +
-          `Safar tugagach "📋 Zakazlarim" bo'limidan tugatishingiz mumkin.`,
-          { parse_mode: 'HTML' },
-        );
+        await ctx.telegram.sendMessage(Number(order.userTgId), driverInfo, { parse_mode: 'HTML' });
       } catch (err) {
         console.log('NOTIFY USER ERROR:', err);
       }
     }
 
-    if (normalized === 'otmen') {
+    if (isOtmen) {
       if (order.status !== 'pending' && order.status !== 'active') {
         await this.tgSafe(() => ctx.reply('⚠️ Bu buyurtmani bekor qilib bo\'lmaydi.', { reply_parameters: { message_id: ctx.message.message_id } }));
         return;
