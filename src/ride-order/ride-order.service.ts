@@ -19,7 +19,7 @@ export class RideOrderService {
         toName: data.toName,
         passengers: data.passengers,
         phone: data.phone,
-        status: 'active',
+        status: 'pending',
       },
     });
   }
@@ -43,7 +43,7 @@ export class RideOrderService {
     return this.prisma.rideOrder.findUnique({ where: { id } });
   }
 
-  async updateStatus(id: number, status: 'active' | 'completed' | 'cancelled') {
+  async updateStatus(id: number, status: 'pending' | 'active' | 'completed' | 'cancelled') {
     return this.prisma.rideOrder.update({
       where: { id },
       data: { status },
@@ -52,7 +52,8 @@ export class RideOrderService {
 
   statusEmoji(status: string): string {
     switch (status) {
-      case 'active': return '🟡🟡🟡🟡🟡';
+      case 'pending': return '🟡🟡🟡🟡🟡';
+      case 'active': return '🟢🟡🟡🟡🟡';
       case 'completed': return '🟢🟢🟢🟢🟢';
       case 'cancelled': return '🔴🔴🔴🔴🔴';
       default: return '⚪⚪⚪⚪⚪';
@@ -61,6 +62,7 @@ export class RideOrderService {
 
   statusLabel(status: string): string {
     switch (status) {
+      case 'pending': return 'Kutilmoqda';
       case 'active': return 'Faol';
       case 'completed': return 'Tugallangan';
       case 'cancelled': return 'Bekor qilingan';

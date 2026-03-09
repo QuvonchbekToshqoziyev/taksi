@@ -81,7 +81,7 @@ model RideOrder {
   toName     String
   passengers Int
   phone      String
-  status     String   @default("active") // 'active' | 'completed' | 'cancelled'
+  status     String   @default("pending") // 'pending' | 'active' | 'completed' | 'cancelled'
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 }

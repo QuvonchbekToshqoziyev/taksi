@@ -876,6 +876,9 @@ ${contactLine}${phoneLine}`;
         await this.handleTargetGroupMessage(ctx, text);
         return;
       }
+
+      // ===== DRIVER REPLY in redirect groups =====
+      await this.handleDriverReply(ctx, text);
     }
   }
 
@@ -1189,6 +1192,81 @@ ${contactLine}${phoneLine}`;
     }
   }
 
+  // ================= DRIVER REPLY: handle olindi/otmen in groups =================
+  private async handleDriverReply(ctx: SafeContext, text: string) {
+    const reply = ctx.message?.reply_to_message;
+    if (!reply) return;
+
+    const normalized = text.trim().toLowerCase();
+    if (normalized !== 'olindi' && normalized !== 'otmen') return;
+
+    // Check if the replied message is from the bot
+    const botInfo = await ctx.telegram.getMe();
+    if (reply.from?.id !== botInfo.id) return;
+
+    // Extract order ID from the replied message text
+    const replyText = reply.text || reply.caption || '';
+    const match = replyText.match(/#(\d+)/);
+    if (!match) return;
+
+    const orderId = parseInt(match[1], 10);
+    const order = await this.rideOrderService.getById(orderId);
+    if (!order) return;
+
+    const driverName = `${ctx.from.first_name || ''} ${ctx.from.last_name || ''}`.trim() || 'Haydovchi';
+
+    if (normalized === 'olindi') {
+      if (order.status !== 'pending') {
+        await this.tgSafe(() => ctx.reply('⚠️ Bu buyurtma allaqachon qabul qilingan yoki tugallangan.', { reply_parameters: { message_id: ctx.message.message_id } }));
+        return;
+      }
+      await this.rideOrderService.updateStatus(orderId, 'active');
+      await this.tgSafe(() => ctx.reply(
+        `✅ Buyurtma #${orderId} qabul qilindi!\n👤 Haydovchi: ${this.escapeHtml(driverName)}`,
+        { parse_mode: 'HTML', reply_parameters: { message_id: reply.message_id } },
+      ));
+
+      // Notify the user
+      try {
+        await ctx.telegram.sendMessage(
+          Number(order.userTgId),
+          `✅ <b>Buyurtma #${orderId} qabul qilindi!</b>\n\n` +
+          `👤 Haydovchi: <a href="tg://user?id=${ctx.from.id}">${this.escapeHtml(driverName)}</a>\n` +
+          `📍 ${this.escapeHtml(order.fromName)} → ${this.escapeHtml(order.toName)}\n\n` +
+          `Safar tugagach "📋 Zakazlarim" bo'limidan tugatishingiz mumkin.`,
+          { parse_mode: 'HTML' },
+        );
+      } catch (err) {
+        console.log('NOTIFY USER ERROR:', err);
+      }
+    }
+
+    if (normalized === 'otmen') {
+      if (order.status !== 'pending' && order.status !== 'active') {
+        await this.tgSafe(() => ctx.reply('⚠️ Bu buyurtmani bekor qilib bo\'lmaydi.', { reply_parameters: { message_id: ctx.message.message_id } }));
+        return;
+      }
+      await this.rideOrderService.updateStatus(orderId, 'cancelled');
+      await this.tgSafe(() => ctx.reply(
+        `❌ Buyurtma #${orderId} bekor qilindi.\n👤 ${this.escapeHtml(driverName)}`,
+        { parse_mode: 'HTML', reply_parameters: { message_id: reply.message_id } },
+      ));
+
+      // Notify the user
+      try {
+        await ctx.telegram.sendMessage(
+          Number(order.userTgId),
+          `❌ <b>Buyurtma #${orderId} bekor qilindi.</b>\n\n` +
+          `📍 ${this.escapeHtml(order.fromName)} → ${this.escapeHtml(order.toName)}\n` +
+          `Yangi buyurtma berish uchun "🚕 Taksi chaqirish" tugmasini bosing.`,
+          { parse_mode: 'HTML' },
+        );
+      } catch (err) {
+        console.log('NOTIFY USER ERROR:', err);
+      }
+    }
+  }
+
   // ================= SCOUT: handle target group message =================
   private async handleTargetGroupMessage(ctx: SafeContext, text: string) {
     // Skip messages from bots
@@ -1349,6 +1427,7 @@ ${contactLine}${phoneLine}`;
 
     const contactLine = `👤 <b>Ism-familiya:</b> <a href="tg://user?id=${userId}">${fullName}</a>`;
     const statusLine = order ? `\n${this.rideOrderService.statusEmoji(order.status)}` : '';
+    const orderIdLine = order ? `\n📋 <b>Buyurtma:</b> #${order.id}` : '';
 
     const msg =
       `🚕 <b>Yangi buyurtma!</b>\n\n` +
@@ -1357,6 +1436,7 @@ ${contactLine}${phoneLine}`;
       `📍 <b>Qayerdan:</b> ${this.escapeHtml(state.fromName)}\n` +
       `📍 <b>Qayerga:</b> ${this.escapeHtml(state.toName)}\n` +
       `👥 <b>Yo'lovchilar:</b> ${state.count}` +
+      orderIdLine +
       statusLine;
 
     const groups = await this.redirectService.getActiveGroups();
@@ -1395,6 +1475,12 @@ ${contactLine}${phoneLine}`;
         `📅 ${date} | <b>${label}</b>\n\n`;
 
       if (o.status === 'active') {
+        buttons.push([
+          Markup.button.callback(`✅ Tugatish #${o.id}`, `ride_complete:${o.id}`),
+          Markup.button.callback(`❌ Bekor #${o.id}`, `ride_cancel_order:${o.id}`),
+        ]);
+      }
+      if (o.status === 'pending') {
         buttons.push([
           Markup.button.callback(`❌ Bekor #${o.id}`, `ride_cancel_order:${o.id}`),
         ]);
@@ -1745,7 +1831,7 @@ ${contactLine}${phoneLine}`;
         await this.tgSafe(() => ctx.answerCbQuery('Buyurtma topilmadi'));
         return;
       }
-      if (order.status !== 'active') {
+      if (order.status !== 'pending' && order.status !== 'active') {
         await this.tgSafe(() => ctx.answerCbQuery('Buyurtma allaqachon tugallangan'));
         return;
       }
@@ -1754,6 +1840,28 @@ ${contactLine}${phoneLine}`;
       await this.tgSafe(() => ctx.answerCbQuery('Bekor qilindi'));
       await this.tgSafe(() =>
         ctx.editMessageText('❌ Buyurtma #' + orderId + ' bekor qilindi.'),
+      );
+    }
+
+    // --- Ride: complete (user finishes ride) ---
+    if (data.startsWith('ride_complete:')) {
+      const orderId = parseInt(data.replace('ride_complete:', ''), 10);
+      if (isNaN(orderId)) return;
+
+      const order = await this.rideOrderService.getById(orderId);
+      if (!order || Number(order.userTgId) !== userId) {
+        await this.tgSafe(() => ctx.answerCbQuery('Buyurtma topilmadi'));
+        return;
+      }
+      if (order.status !== 'active') {
+        await this.tgSafe(() => ctx.answerCbQuery('Faqat faol buyurtmani tugatish mumkin'));
+        return;
+      }
+
+      await this.rideOrderService.updateStatus(orderId, 'completed');
+      await this.tgSafe(() => ctx.answerCbQuery('Tugallandi'));
+      await this.tgSafe(() =>
+        ctx.editMessageText('✅ Buyurtma #' + orderId + ' tugallandi. Rahmat!'),
       );
     }
   }
