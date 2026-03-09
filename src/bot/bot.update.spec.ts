@@ -1,7 +1,7 @@
 import { BotUpdate } from './bot.update';
 
 describe('BotUpdate isTaxiOrder', () => {
-  const bot = new BotUpdate({} as any, {} as any, {} as any, { getClientKeywords: () => [], getDriverKeywords: () => [] } as any, {} as any, {} as any, {} as any);
+  const bot = new BotUpdate({} as any, {} as any, {} as any, { getClientKeywords: () => [], getDriverKeywords: () => [] } as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any);
   const isTaxiOrder = (text: string) => (bot as any).isTaxiOrder(text);
 
   it('accepts extended client phrases from real chats', () => {
@@ -56,7 +56,7 @@ describe('BotUpdate isTaxiOrder', () => {
     const adminService = { isAdmin: jest.fn().mockResolvedValue(false) };
     const targetService = { isTargetGroup: jest.fn().mockResolvedValue(false) };
     const keywordService = { getClientKeywords: () => [], getDriverKeywords: () => [] };
-    const localBot = new BotUpdate(redirectService as any, adminService as any, targetService as any, keywordService as any, {} as any, {} as any, {} as any);
+    const localBot = new BotUpdate(redirectService as any, adminService as any, targetService as any, keywordService as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any);
 
     const ctx = {
       chat: { id: 1001, type: 'private' as const },

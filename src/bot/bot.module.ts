@@ -8,6 +8,9 @@ import { KeywordModule } from 'src/keyword/keyword.module';
 import { LocationModule } from 'src/location/location.module';
 import { AdminLogModule } from 'src/admin-log/admin-log.module';
 import { RideOrderModule } from 'src/ride-order/ride-order.module';
+import { DriverModule } from 'src/driver/driver.module';
+import { DriverPostModule } from 'src/driver-post/driver-post.module';
+import { PublicChannelModule } from 'src/public-channel/public-channel.module';
 
 @Module({
   imports: [
@@ -21,6 +24,9 @@ import { RideOrderModule } from 'src/ride-order/ride-order.module';
     LocationModule,
     AdminLogModule,
     RideOrderModule,
+    DriverModule,
+    DriverPostModule,
+    PublicChannelModule,
   ],
   providers: [BotUpdate],
 })

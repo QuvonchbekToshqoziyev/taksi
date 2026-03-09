@@ -85,3 +85,40 @@ model RideOrder {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 }
+
+model Driver {
+  id          Int      @id @default(autoincrement())
+  tgId        BigInt   @unique
+  fullName    String
+  phone       String
+  carNumber   String
+  carPhotoId  String?  // Telegram file_id for car photo
+  status      String   @default("idle") // 'on_road' | 'idle' | 'not_working'
+  isApproved  Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  posts       DriverPost[]
+}
+
+model DriverPost {
+  id          Int      @id @default(autoincrement())
+  driverId    Int
+  driver      Driver   @relation(fields: [driverId], references: [id])
+  fromName    String
+  toName      String
+  seats       Int      // available seats
+  price       String?  // optional price info
+  note        String?  // optional note
+  channelMsgId Int?    // message_id in public channel
+  status      String   @default("active") // 'active' | 'closed'
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model PublicChannel {
+  id       Int     @id @default(autoincrement())
+  chatId   String  @unique
+  title    String
+  isActive Boolean @default(true)
+  addedAt  DateTime @default(now())
+}

@@ -461,6 +461,9 @@ import { KeywordService } from '../keyword/keyword.service';
 import { LocationService } from '../location/location.service';
 import { AdminLogService } from '../admin-log/admin-log.service';
 import { RideOrderService } from '../ride-order/ride-order.service';
+import { DriverService } from '../driver/driver.service';
+import { DriverPostService } from '../driver-post/driver-post.service';
+import { PublicChannelService } from '../public-channel/public-channel.service';
 
 type SafeContext = Context & {
   chat: {
@@ -487,6 +490,9 @@ export class BotUpdate {
     private readonly locationService: LocationService,
     private readonly adminLogService: AdminLogService,
     private readonly rideOrderService: RideOrderService,
+    private readonly driverService: DriverService,
+    private readonly driverPostService: DriverPostService,
+    private readonly publicChannelService: PublicChannelService,
   ) {}
 
   private waitingRedirect = new Set<number>();
@@ -504,6 +510,30 @@ export class BotUpdate {
     count?: number;
     phone?: string;
   }>();
+
+  // ---- Driver registration state ----
+  private driverRegState = new Map<number, {
+    step: 'fullName' | 'phone' | 'carNumber' | 'carPhoto';
+    fullName?: string;
+    phone?: string;
+    carNumber?: string;
+    carPhotoId?: string;
+  }>();
+
+  // ---- Driver post state ----
+  private driverPostState = new Map<number, {
+    step: 'from' | 'to' | 'seats' | 'price' | 'note' | 'confirm';
+    fromId?: number;
+    fromName?: string;
+    toId?: number;
+    toName?: string;
+    seats?: number;
+    price?: string;
+    note?: string;
+  }>();
+
+  // ---- Waiting for public channel input ----
+  private waitingPublicChannel = new Set<number>();
 
   // ---- Rate limiter: userId -> timestamp[] ----
   private rateLimits = new Map<number, number[]>();
@@ -794,6 +824,7 @@ ${contactLine}${phoneLine}`;
     this.waitingTarget.delete(ctx.from.id);
     this.waitingKeyword.delete(ctx.from.id);
     this.waitingLocationSub.delete(ctx.from.id);
+    this.waitingPublicChannel.delete(ctx.from.id);
 
     if (isSuperAdmin) {
       await this.tgSafe(() =>
@@ -803,7 +834,7 @@ ${contactLine}${phoneLine}`;
             ['➕ Redirect qo\'shish', '📋 Redirectlar'],
             ['🎯 Target qo\'shish', '📋 Targetlar'],
             ['📗 Kalit soʻzlar', '📍 Joylashuvlar'],
-            ['📜 Admin loglar'],
+            ['📢 Ommaviy kanal', '📜 Admin loglar'],
           ]).resize(),
         ),
       );
@@ -823,10 +854,15 @@ ${contactLine}${phoneLine}`;
   // ================= USER HOME =================
   private async sendUserHome(ctx: SafeContext) {
     this.rideState.delete(ctx.from.id);
+    this.driverRegState.delete(ctx.from.id);
+    this.driverPostState.delete(ctx.from.id);
     await this.tgSafe(() =>
       ctx.reply(
-        '🚕 Taksi botga xush kelibsiz!\nTaksi buyurtma berish uchun pastdagi tugmani bosing.',
-        Markup.keyboard([['🚕 Taksi chaqirish', '📋 Zakazlarim']]).resize(),
+        '🚕 Taksi botga xush kelibsiz!\nTaksi buyurtma berish yoki haydovchi sifatida roʻyxatdan oʻtish uchun pastdagi tugmani bosing.',
+        Markup.keyboard([
+          ['🚕 Taksi chaqirish', '📋 Zakazlarim'],
+          ['🚗 Haydovchi'],
+        ]).resize(),
       ),
     );
   }
@@ -1084,6 +1120,61 @@ ${contactLine}${phoneLine}`;
       return true;
     }
 
+    // --- 📢 Ommaviy kanal (superadmin only) ---
+    if (text === '📢 Ommaviy kanal' && isSuperAdmin) {
+      const channels = await this.publicChannelService.getAll();
+      const channelList = channels.length
+        ? channels.map(c => `• ${this.escapeHtml(c.title)}`).join('\n')
+        : 'Hozircha kanal yo\'q';
+      await this.tgSafe(() =>
+        ctx.reply(
+          `📢 <b>Ommaviy kanallar:</b>\n${channelList}`,
+          {
+            parse_mode: 'HTML',
+            ...Markup.keyboard([
+              ['➕ Kanal qo\'shish', '📋 Kanallar'],
+              ['🏠 Bosh sahifa'],
+            ]).resize(),
+          },
+        ),
+      );
+      return true;
+    }
+
+    if (text === '➕ Kanal qo\'shish' && isSuperAdmin) {
+      this.waitingPublicChannel.add(ctx.from.id);
+      this.waitingRedirect.delete(ctx.from.id);
+      this.waitingTarget.delete(ctx.from.id);
+      await this.tgSafe(() =>
+        ctx.reply(
+          'Ommaviy kanal @username yoki chat ID yuboring (-100...).',
+          Markup.keyboard([['❌ Bekor qilish', '🏠 Bosh sahifa']]).resize(),
+        ),
+      );
+      return true;
+    }
+
+    if (text === '📋 Kanallar' && isSuperAdmin) {
+      const channels = await this.publicChannelService.getAll();
+      if (!channels.length) {
+        await this.tgSafe(() => ctx.reply('Ommaviy kanal yo\'q'));
+        return true;
+      }
+      const buttons = channels.map(c => [
+        Markup.button.callback(`❌ ${c.title}`, `rm_pub_ch:${c.chatId}`),
+      ]);
+      await this.tgSafe(() =>
+        ctx.reply('Ommaviy kanallar (bosing o\'chirish uchun):', Markup.inlineKeyboard(buttons)),
+      );
+      return true;
+    }
+
+    // --- Waiting for public channel input ---
+    if (this.waitingPublicChannel.has(ctx.from.id)) {
+      await this.processAddPublicChannel(ctx, text);
+      return true;
+    }
+
     // --- Waiting for redirect input ---
     if (this.waitingRedirect.has(ctx.from.id)) {
       await this.processAddRedirect(ctx, text);
@@ -1187,6 +1278,32 @@ ${contactLine}${phoneLine}`;
       }
       if (desc.includes('chat not found') || desc.includes('bad request')) {
         await this.tgSafe(() => ctx.reply('❌ Chat topilmadi. Bot guruhga qo\'shilganmi?'));
+        return;
+      }
+      await this.tgSafe(() => ctx.reply('❌ Xatolik yuz berdi'));
+    }
+  }
+
+  // ================= ADD PUBLIC CHANNEL =================
+  private async processAddPublicChannel(ctx: SafeContext, text: string) {
+    try {
+      const ref = this.normalizeChatRef(text);
+      const chat = await this.tgSafe(() => ctx.telegram.getChat(ref)) as any;
+      if (!chat || !['channel', 'supergroup', 'group'].includes(chat.type)) {
+        await this.tgSafe(() => ctx.reply('❌ Faqat kanal yoki guruhni qo\'shish mumkin.'));
+        return;
+      }
+      const chatId = String(chat.id);
+      const title = chat.title || ref;
+
+      await this.publicChannelService.addChannel({ chatId, title });
+      this.waitingPublicChannel.delete(ctx.from.id);
+      await this.tgSafe(() => ctx.reply(`✅ Ommaviy kanal qo'shildi: ${title}`));
+      await this.sendMainMenu(ctx, true);
+    } catch (err: any) {
+      const desc = this.getErrDesc(err).toLowerCase();
+      if (desc.includes('chat not found') || desc.includes('bad request')) {
+        await this.tgSafe(() => ctx.reply('❌ Kanal topilmadi. Bot kanalga qo\'shilganmi?'));
         return;
       }
       await this.tgSafe(() => ctx.reply('❌ Xatolik yuz berdi'));
@@ -1394,6 +1511,8 @@ ${contactLine}${phoneLine}`;
     // ❌ Bekor qilish — always go home
     if (text === '❌ Bekor qilish') {
       this.rideState.delete(ctx.from.id);
+      this.driverRegState.delete(ctx.from.id);
+      this.driverPostState.delete(ctx.from.id);
       await this.sendUserHome(ctx);
       return true;
     }
@@ -1428,6 +1547,121 @@ ${contactLine}${phoneLine}`;
       return true;
     }
 
+    // 🚗 Haydovchi — driver menu
+    if (text === '🚗 Haydovchi') {
+      await this.sendDriverMenu(ctx);
+      return true;
+    }
+
+    // Driver menu buttons
+    if (text === '📝 Ro\'yxatdan o\'tish') {
+      this.driverRegState.set(ctx.from.id, { step: 'fullName' });
+      await this.tgSafe(() =>
+        ctx.reply(
+          '👤 Ism-familiyangizni kiriting:',
+          Markup.keyboard([['❌ Bekor qilish']]).resize(),
+        ),
+      );
+      return true;
+    }
+
+    if (text === '✏️ Ma\'lumotlarni o\'zgartirish') {
+      const driver = await this.driverService.getByTgId(ctx.from.id);
+      if (!driver) {
+        await this.tgSafe(() => ctx.reply('Siz hali ro\'yxatdan o\'tmagansiz.'));
+        return true;
+      }
+      this.driverRegState.set(ctx.from.id, { step: 'fullName' });
+      await this.tgSafe(() =>
+        ctx.reply(
+          '👤 Yangi ism-familiyangizni kiriting:',
+          Markup.keyboard([['❌ Bekor qilish']]).resize(),
+        ),
+      );
+      return true;
+    }
+
+    if (text === '📢 E\'lon berish') {
+      const driver = await this.driverService.getByTgId(ctx.from.id);
+      if (!driver) {
+        await this.tgSafe(() => ctx.reply('Avval ro\'yxatdan o\'ting.'));
+        return true;
+      }
+      if (driver.status === 'not_working') {
+        await this.tgSafe(() => ctx.reply('Statusingiz "Ishlamayapti" — avval statusni o\'zgartiring.'));
+        return true;
+      }
+      const locations = await this.locationService.getTopLevelLocations();
+      if (!locations.length) {
+        await this.tgSafe(() => ctx.reply('Hozircha joylashuvlar mavjud emas.'));
+        return true;
+      }
+      this.driverPostState.set(ctx.from.id, { step: 'from' });
+      const buttons = locations.map(l => [
+        Markup.button.callback(l.name, `dpost_from:${l.id}`),
+      ]);
+      await this.tgSafe(() =>
+        ctx.reply('📍 Qayerdan ketyapsiz?', Markup.inlineKeyboard(buttons)),
+      );
+      return true;
+    }
+
+    if (text === '📋 Mening e\'lonlarim') {
+      await this.showDriverPosts(ctx);
+      return true;
+    }
+
+    if (text === '🅿️ Bo\'sh' || text === '🚗 Yo\'lda' || text === '🔴 Ishlamayapti') {
+      const driver = await this.driverService.getByTgId(ctx.from.id);
+      if (!driver) {
+        await this.tgSafe(() => ctx.reply('Avval ro\'yxatdan o\'ting.'));
+        return true;
+      }
+      const statusMap: Record<string, 'idle' | 'on_road' | 'not_working'> = {
+        '🅿️ Bo\'sh': 'idle',
+        '🚗 Yo\'lda': 'on_road',
+        '🔴 Ishlamayapti': 'not_working',
+      };
+      const newStatus = statusMap[text];
+      if (newStatus) {
+        await this.driverService.updateStatus(ctx.from.id, newStatus);
+        await this.tgSafe(() => ctx.reply(`✅ Statusingiz o'zgardi: ${this.driverService.statusLabel(newStatus)}`));
+        await this.sendDriverMenu(ctx);
+      }
+      return true;
+    }
+
+    if (text === '🔙 Orqaga') {
+      await this.sendUserHome(ctx);
+      return true;
+    }
+
+    // --- Driver registration steps ---
+    const driverReg = this.driverRegState.get(ctx.from.id);
+    if (driverReg) {
+      return await this.handleDriverRegStep(ctx, text, driverReg);
+    }
+
+    // --- Driver post: price/note steps ---
+    const driverPost = this.driverPostState.get(ctx.from.id);
+    if (driverPost?.step === 'price') {
+      driverPost.price = text === '⏩ O\'tkazib yuborish' ? undefined : text;
+      driverPost.step = 'note';
+      await this.tgSafe(() =>
+        ctx.reply(
+          '📝 Qo\'shimcha izoh yozing (ixtiyoriy):',
+          Markup.keyboard([['⏩ O\'tkazib yuborish', '❌ Bekor qilish']]).resize(),
+        ),
+      );
+      return true;
+    }
+    if (driverPost?.step === 'note') {
+      driverPost.note = text === '⏩ O\'tkazib yuborish' ? undefined : text;
+      driverPost.step = 'confirm';
+      await this.showDriverPostConfirm(ctx, driverPost);
+      return true;
+    }
+
     return false;
   }
 
@@ -1438,12 +1672,42 @@ ${contactLine}${phoneLine}`;
     const contact = (ctx.message as any)?.contact;
     if (!contact?.phone_number) return;
 
+    // Driver registration phone step
+    const driverReg = this.driverRegState.get(ctx.from.id);
+    if (driverReg?.step === 'phone') {
+      driverReg.phone = contact.phone_number;
+      driverReg.step = 'carNumber';
+      await this.tgSafe(() =>
+        ctx.reply(
+          '🚙 Mashina raqamini kiriting (masalan: 01A123BC):',
+          Markup.keyboard([['❌ Bekor qilish']]).resize(),
+        ),
+      );
+      return;
+    }
+
     const state = this.rideState.get(ctx.from.id);
     if (state?.step === 'phone') {
       state.phone = contact.phone_number;
       state.step = 'confirm';
       await this.showRideConfirm(ctx, state);
     }
+  }
+
+  // ================= PHOTO HANDLER (car photo for driver registration) =================
+  @On('photo')
+  async onPhoto(@Ctx() ctx: SafeContext) {
+    if (ctx.chat.type !== 'private') return;
+    const driverReg = this.driverRegState.get(ctx.from.id);
+    if (!driverReg || driverReg.step !== 'carPhoto') return;
+
+    const photos = (ctx.message as any)?.photo;
+    if (!photos?.length) return;
+
+    // Get the highest resolution photo
+    const photo = photos[photos.length - 1];
+    driverReg.carPhotoId = photo.file_id;
+    await this.finishDriverRegistration(ctx, driverReg);
   }
 
   // ================= RIDE: show confirmation =================
@@ -1538,6 +1802,228 @@ ${contactLine}${phoneLine}`;
         ctx.reply(msg, {
           parse_mode: 'HTML',
           ...(buttons.length ? Markup.inlineKeyboard(buttons) : {}),
+        }),
+      );
+      await this.tgDelay();
+    }
+  }
+
+  // ================= DRIVER MENU =================
+  private async sendDriverMenu(ctx: SafeContext) {
+    this.driverRegState.delete(ctx.from.id);
+    this.driverPostState.delete(ctx.from.id);
+
+    const driver = await this.driverService.getByTgId(ctx.from.id);
+
+    if (!driver) {
+      await this.tgSafe(() =>
+        ctx.reply(
+          '🚗 Haydovchi bo\'limiga xush kelibsiz!\nAvval ro\'yxatdan o\'tishingiz kerak.',
+          Markup.keyboard([
+            ['📝 Ro\'yxatdan o\'tish'],
+            ['🔙 Orqaga'],
+          ]).resize(),
+        ),
+      );
+      return;
+    }
+
+    const statusEmoji = this.driverService.statusEmoji(driver.status);
+    const statusLabel = this.driverService.statusLabel(driver.status);
+
+    await this.tgSafe(() =>
+      ctx.reply(
+        `🚗 <b>Haydovchi paneli</b>\n\n` +
+        `👤 ${this.escapeHtml(driver.fullName)}\n` +
+        `📞 ${this.escapeHtml(driver.phone)}\n` +
+        `🚙 ${this.escapeHtml(driver.carNumber)}\n` +
+        `${statusEmoji} Holat: <b>${statusLabel}</b>`,
+        {
+          parse_mode: 'HTML',
+          ...Markup.keyboard([
+            ['📢 E\'lon berish', '📋 Mening e\'lonlarim'],
+            ['🅿️ Bo\'sh', '🚗 Yo\'lda', '🔴 Ishlamayapti'],
+            ['✏️ Ma\'lumotlarni o\'zgartirish'],
+            ['🔙 Orqaga'],
+          ]).resize(),
+        },
+      ),
+    );
+  }
+
+  // ================= DRIVER REGISTRATION STEPS =================
+  private async handleDriverRegStep(ctx: SafeContext, text: string, state: any): Promise<boolean> {
+    if (state.step === 'fullName') {
+      state.fullName = text;
+      state.step = 'phone';
+      await this.tgSafe(() =>
+        ctx.reply(
+          '📞 Telefon raqamingizni kiriting:',
+          Markup.keyboard([
+            [Markup.button.contactRequest('📞 Kontakt yuborish')],
+            ['❌ Bekor qilish'],
+          ]).resize(),
+        ),
+      );
+      return true;
+    }
+
+    if (state.step === 'phone') {
+      const phone = this.extractPhone(text);
+      const raw = text.replace(/[\s\-()]/g, '');
+      const validPhone = phone || (/^\+?\d{9,13}$/.test(raw) ? raw : null);
+      if (!validPhone) {
+        await this.tgSafe(() => ctx.reply('❌ Raqam noto\'g\'ri. Masalan: +998901234567'));
+        return true;
+      }
+      state.phone = validPhone;
+      state.step = 'carNumber';
+      await this.tgSafe(() =>
+        ctx.reply(
+          '🚙 Mashina raqamini kiriting (masalan: 01A123BC):',
+          Markup.keyboard([['❌ Bekor qilish']]).resize(),
+        ),
+      );
+      return true;
+    }
+
+    if (state.step === 'carNumber') {
+      state.carNumber = text.toUpperCase();
+      state.step = 'carPhoto';
+      await this.tgSafe(() =>
+        ctx.reply(
+          '📸 Mashina rasmini yuboring (ixtiyoriy):',
+          Markup.keyboard([['⏩ O\'tkazib yuborish', '❌ Bekor qilish']]).resize(),
+        ),
+      );
+      return true;
+    }
+
+    if (state.step === 'carPhoto') {
+      if (text === '⏩ O\'tkazib yuborish') {
+        await this.finishDriverRegistration(ctx, state);
+        return true;
+      }
+      await this.tgSafe(() => ctx.reply('📸 Rasm yuboring yoki "⏩ O\'tkazib yuborish" tugmasini bosing.'));
+      return true;
+    }
+
+    return false;
+  }
+
+  private async finishDriverRegistration(ctx: SafeContext, state: any) {
+    try {
+      await this.driverService.register({
+        tgId: ctx.from.id,
+        fullName: state.fullName,
+        phone: state.phone,
+        carNumber: state.carNumber,
+        carPhotoId: state.carPhotoId,
+      });
+      this.driverRegState.delete(ctx.from.id);
+      await this.tgSafe(() => ctx.reply('✅ Ro\'yxatdan muvaffaqiyatli o\'tdingiz!'));
+      await this.sendDriverMenu(ctx);
+    } catch (err) {
+      console.log('DRIVER REG ERROR:', err);
+      await this.tgSafe(() => ctx.reply('❌ Xatolik yuz berdi.'));
+    }
+  }
+
+  // ================= DRIVER POST CONFIRM =================
+  private async showDriverPostConfirm(ctx: SafeContext, state: any) {
+    const priceText = state.price ? `💰 <b>Narx:</b> ${this.escapeHtml(state.price)}\n` : '';
+    const noteText = state.note ? `📝 <b>Izoh:</b> ${this.escapeHtml(state.note)}\n` : '';
+
+    const msg =
+      `🚗 <b>E'lon ma'lumotlari:</b>\n\n` +
+      `📍 <b>Qayerdan:</b> ${this.escapeHtml(state.fromName)}\n` +
+      `📍 <b>Qayerga:</b> ${this.escapeHtml(state.toName)}\n` +
+      `💺 <b>Bo'sh joy:</b> ${state.seats}\n` +
+      priceText + noteText;
+
+    await this.tgSafe(() =>
+      ctx.reply(msg, {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('✅ E\'lon berish', 'dpost_confirm')],
+          [Markup.button.callback('❌ Bekor qilish', 'dpost_cancel')],
+        ]),
+      }),
+    );
+  }
+
+  // ================= SEND DRIVER POST TO PUBLIC CHANNELS =================
+  private async sendDriverPostToChannels(ctx: any, driver: any, post: any): Promise<number> {
+    const fullName = this.escapeHtml(driver.fullName);
+    const username = ctx.callbackQuery?.from?.username || ctx.from?.username;
+    const userId = ctx.callbackQuery?.from?.id || ctx.from?.id;
+    const usernameText = username ? ` (@${this.escapeHtml(username)})` : '';
+    const priceText = post.price ? `\n💰 <b>Narx:</b> ${this.escapeHtml(post.price)}` : '';
+    const noteText = post.note ? `\n📝 ${this.escapeHtml(post.note)}` : '';
+
+    const msg =
+      `🚗 <b>Haydovchi e'loni</b>\n\n` +
+      `📍 ${this.escapeHtml(post.fromName)} → ${this.escapeHtml(post.toName)}\n` +
+      `💺 <b>Bo'sh joy:</b> ${post.seats}` +
+      priceText + noteText + `\n\n` +
+      `👤 <a href="tg://user?id=${userId}">${fullName}</a>${usernameText}\n` +
+      `📞 ${this.escapeHtml(driver.phone)}\n` +
+      `🚙 ${this.escapeHtml(driver.carNumber)}`;
+
+    const channels = await this.publicChannelService.getActiveChannels();
+    let success = 0;
+
+    for (const ch of channels) {
+      try {
+        const sent = await this.safeSendMessage(ctx, ch.chatId, msg, { parse_mode: 'HTML' });
+        if (sent && post.id) {
+          try {
+            await this.driverPostService.closePost(post.id);
+            // Reopen with channel message id
+            // For simplicity we just store it
+          } catch {}
+        }
+        success++;
+      } catch (err: any) {
+        console.log('DRIVER POST SEND ERROR:', ch.title, this.getErrDesc(err));
+      }
+      await this.tgDelay();
+    }
+    return success;
+  }
+
+  // ================= SHOW DRIVER POSTS =================
+  private async showDriverPosts(ctx: SafeContext) {
+    const driver = await this.driverService.getByTgId(ctx.from.id);
+    if (!driver) {
+      await this.tgSafe(() => ctx.reply('Siz hali ro\'yxatdan o\'tmagansiz.'));
+      return;
+    }
+
+    const posts = await this.driverPostService.getByDriver(driver.id);
+    if (!posts.length) {
+      await this.tgSafe(() => ctx.reply('📋 Sizda hali e\'lonlar yo\'q.'));
+      return;
+    }
+
+    await this.tgSafe(() => ctx.reply('📋 <b>Sizning e\'lonlaringiz:</b>', { parse_mode: 'HTML' }));
+
+    for (const p of posts) {
+      const date = p.createdAt.toLocaleDateString('uz-UZ');
+      const priceText = p.price ? `\n💰 Narx: ${this.escapeHtml(p.price)}` : '';
+
+      const msg =
+        `📍 <b>${this.escapeHtml(p.fromName)}</b> → <b>${this.escapeHtml(p.toName)}</b>\n` +
+        `💺 Bo'sh joy: ${p.seats}` +
+        priceText +
+        `\n📅 ${date}`;
+
+      await this.tgSafe(() =>
+        ctx.reply(msg, {
+          parse_mode: 'HTML',
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('❌ E\'lonni yopish', `dpost_close:${p.id}`)],
+          ]),
         }),
       );
       await this.tgDelay();
@@ -1918,6 +2404,169 @@ ${contactLine}${phoneLine}`;
       await this.tgSafe(() =>
         ctx.editMessageText('✅ Buyurtma #' + orderId + ' tugallandi. Rahmat!'),
       );
+    }
+
+    // --- Driver post: pick origin ---
+    if (data.startsWith('dpost_from:')) {
+      const id = parseInt(data.replace('dpost_from:', ''), 10);
+      if (isNaN(id)) return;
+      const loc = await this.locationService.getById(id);
+      if (!loc) return;
+
+      const state = this.driverPostState.get(userId) || { step: 'from' as const };
+      state.fromId = id;
+      state.fromName = loc.name;
+      state.step = 'to';
+      this.driverPostState.set(userId, state);
+
+      const locations = await this.locationService.getTopLevelLocations();
+      const remaining = locations.filter(l => l.id !== id);
+
+      if (!remaining.length) {
+        await this.tgSafe(() => ctx.answerCbQuery('Boshqa joy yo\'q'));
+        return;
+      }
+
+      const buttons = remaining.map(l => [
+        Markup.button.callback(l.name, `dpost_to:${l.id}`),
+      ]);
+      await this.tgSafe(() => ctx.answerCbQuery());
+      await this.tgSafe(() =>
+        ctx.editMessageText('📍 Qayerga ketyapsiz?', Markup.inlineKeyboard(buttons)),
+      );
+    }
+
+    // --- Driver post: pick destination ---
+    if (data.startsWith('dpost_to:')) {
+      const id = parseInt(data.replace('dpost_to:', ''), 10);
+      if (isNaN(id)) return;
+      const loc = await this.locationService.getById(id);
+      if (!loc) return;
+
+      const state = this.driverPostState.get(userId);
+      if (!state || state.step !== 'to') return;
+
+      state.toId = id;
+      state.toName = loc.name;
+      state.step = 'seats';
+      this.driverPostState.set(userId, state);
+
+      const buttons = [
+        [
+          Markup.button.callback('1', 'dpost_seats:1'),
+          Markup.button.callback('2', 'dpost_seats:2'),
+          Markup.button.callback('3', 'dpost_seats:3'),
+          Markup.button.callback('4', 'dpost_seats:4'),
+        ],
+      ];
+      await this.tgSafe(() => ctx.answerCbQuery());
+      await this.tgSafe(() =>
+        ctx.editMessageText('💺 Nechta bo\'sh joy bor?', Markup.inlineKeyboard(buttons)),
+      );
+    }
+
+    // --- Driver post: pick seats ---
+    if (data.startsWith('dpost_seats:')) {
+      const seats = parseInt(data.replace('dpost_seats:', ''), 10);
+      if (isNaN(seats)) return;
+
+      const state = this.driverPostState.get(userId);
+      if (!state || state.step !== 'seats') return;
+
+      state.seats = seats;
+      state.step = 'price';
+      this.driverPostState.set(userId, state);
+
+      await this.tgSafe(() => ctx.answerCbQuery());
+      await this.tgSafe(() =>
+        ctx.editMessageText(`✅ ${seats} ta bo'sh joy tanlandi.`),
+      );
+      await this.tgSafe(() =>
+        ctx.reply(
+          '💰 Narxni yozing (masalan: 50000 so\'m) yoki o\'tkazib yuboring:',
+          Markup.keyboard([['⏩ O\'tkazib yuborish', '❌ Bekor qilish']]).resize(),
+        ),
+      );
+    }
+
+    // --- Driver post: confirm ---
+    if (data === 'dpost_confirm') {
+      const state = this.driverPostState.get(userId);
+      if (!state || state.step !== 'confirm') return;
+
+      const driver = await this.driverService.getByTgId(userId);
+      if (!driver) {
+        await this.tgSafe(() => ctx.answerCbQuery('Avval ro\'yxatdan o\'ting'));
+        return;
+      }
+
+      await this.tgSafe(() => ctx.answerCbQuery());
+
+      let post: any = null;
+      try {
+        post = await this.driverPostService.create({
+          driverId: driver.id,
+          fromName: state.fromName!,
+          toName: state.toName!,
+          seats: state.seats!,
+          price: state.price,
+          note: state.note,
+        });
+      } catch (err) {
+        console.log('DRIVER POST DB SAVE ERROR:', err);
+      }
+
+      const success = await this.sendDriverPostToChannels(ctx, driver, { ...state, id: post?.id });
+      this.driverPostState.delete(userId);
+
+      if (success > 0) {
+        await this.tgSafe(() =>
+          ctx.editMessageText('✅ E\'loningiz ommaviy kanalga joylandi!'),
+        );
+      } else {
+        await this.tgSafe(() =>
+          ctx.editMessageText('❌ Hozircha e\'lon joylab bo\'lmadi. Keyinroq urinib ko\'ring.'),
+        );
+      }
+
+      // Restore driver menu keyboard
+      await this.sendDriverMenu(ctx);
+    }
+
+    // --- Driver post: cancel ---
+    if (data === 'dpost_cancel') {
+      this.driverPostState.delete(userId);
+      await this.tgSafe(() => ctx.answerCbQuery('Bekor qilindi'));
+      await this.tgSafe(() => ctx.editMessageText('❌ E\'lon bekor qilindi.'));
+      await this.sendDriverMenu(ctx);
+    }
+
+    // --- Driver post: close existing ---
+    if (data.startsWith('dpost_close:')) {
+      const postId = parseInt(data.replace('dpost_close:', ''), 10);
+      if (isNaN(postId)) return;
+
+      const post = await this.driverPostService.getById(postId);
+      if (!post || Number(post.driver.tgId) !== userId) {
+        await this.tgSafe(() => ctx.answerCbQuery('E\'lon topilmadi'));
+        return;
+      }
+
+      await this.driverPostService.closePost(postId);
+      await this.tgSafe(() => ctx.answerCbQuery('Yopildi'));
+      await this.tgSafe(() => ctx.editMessageText('❌ E\'lon yopildi.'));
+    }
+
+    // --- Remove public channel ---
+    if (data.startsWith('rm_pub_ch:')) {
+      const chatId = data.replace('rm_pub_ch:', '');
+      try {
+        await this.publicChannelService.deleteByChatId(chatId);
+        await this.tgSafe(() => ctx.answerCbQuery('O\'chirildi'));
+        await this.tgSafe(() => ctx.editMessageText('❌ Ommaviy kanal o\'chirildi'));
+      } catch {
+        await this.tgSafe(() => ctx.answerCbQuery('Xatolik'));
+      }
     }
   }
 
