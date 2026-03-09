@@ -1,4 +1,4 @@
-name: Deploy TaxiMonitor Backend to VPS
+name: Deploy Taksi Bot to VPS
 
 on:
   push:
@@ -24,26 +24,22 @@ jobs:
           command_timeout: 30m
           script: |
             set -e
-            echo "📁 Creating app folder..."
-            mkdir -p /var/www/taxiMonitor
-            cd /var/www/taxiMonitor
+            cd /root/taksi
 
-            if [ ! -d ".git" ]; then
-              echo "📥 Cloning public repository..."
-              git clone https://github.com/tuxtasinboyev/Taxi_manitor.git .
-            else
-              echo "♻️ Pulling latest code..."
-              git reset --hard
-              git pull origin main
-            fi
+            echo "♻️ Pulling latest code..."
+            git pull origin main
 
-            echo "🛑 Managing containers..."
-            docker compose down || true
+            echo "📦 Installing dependencies..."
+            npm ci
 
-            echo "🛠️ Building and Starting..."
-            docker compose up -d --build
+            echo "🗄️ Running migrations..."
+            npx prisma generate
+            npx prisma migrate deploy
 
-            echo "🧹 Cleaning up..."
-            docker image prune -f
+            echo "🛠️ Building..."
+            npm run build
 
-            echo "🎉 TaxiMonitor Deploy finished successfully!"
+            echo "🔄 Restarting bot..."
+            pm2 restart taksi
+
+            echo "🎉 Taksi Bot deploy finished successfully!"
