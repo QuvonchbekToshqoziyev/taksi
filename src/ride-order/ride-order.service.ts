@@ -26,7 +26,7 @@ export class RideOrderService {
 
   async getByUser(userTgId: number) {
     return this.prisma.rideOrder.findMany({
-      where: { userTgId: BigInt(userTgId) },
+      where: { userTgId: BigInt(userTgId), status: { not: 'cancelled' } },
       orderBy: { createdAt: 'desc' },
       take: 20,
     });

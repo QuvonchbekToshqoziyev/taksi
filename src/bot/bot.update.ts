@@ -505,6 +505,23 @@ export class BotUpdate {
     phone?: string;
   }>();
 
+  // ---- Rate limiter: userId -> timestamp[] ----
+  private rateLimits = new Map<number, number[]>();
+  private readonly RATE_LIMIT_WINDOW = 10_000; // 10 seconds
+  private readonly RATE_LIMIT_MAX = 5; // max actions per window
+
+  private isRateLimited(userId: number): boolean {
+    const now = Date.now();
+    const timestamps = (this.rateLimits.get(userId) || []).filter(t => now - t < this.RATE_LIMIT_WINDOW);
+    if (timestamps.length >= this.RATE_LIMIT_MAX) {
+      this.rateLimits.set(userId, timestamps);
+      return true;
+    }
+    timestamps.push(now);
+    this.rateLimits.set(userId, timestamps);
+    return false;
+  }
+
   private readonly FORCE_CLIENT_PHRASES: string[] = [
     'gulistonga taxi bormi',
     'gulistonga taksi bormi',
@@ -850,6 +867,12 @@ ${contactLine}${phoneLine}`;
 
     if (/^\/getid(?:@\w+)?$/i.test(commandText)) {
       await this.tgSafe(() => ctx.reply(`Chat ID: ${ctx.chat.id}`));
+      return;
+    }
+
+    // Rate limit private users
+    if (ctx.chat.type === 'private' && this.isRateLimited(ctx.from.id)) {
+      await this.tgSafe(() => ctx.reply('⚠️ Iltimos, sekinroq yozing.'));
       return;
     }
 
@@ -1485,38 +1508,38 @@ ${contactLine}${phoneLine}`;
       return;
     }
 
-    let msg = '📋 <b>Sizning buyurtmalaringiz:</b>\n\n';
-    const buttons: any[][] = [];
+    await this.tgSafe(() => ctx.reply('📋 <b>Sizning buyurtmalaringiz:</b>', { parse_mode: 'HTML' }));
 
     for (const o of orders) {
       const emoji = this.rideOrderService.statusEmoji(o.status);
       const label = this.rideOrderService.statusLabel(o.status);
       const date = o.createdAt.toLocaleDateString('uz-UZ');
-      msg +=
-        `${emoji}\n` +
-        `📍 ${this.escapeHtml(o.fromName)} → ${this.escapeHtml(o.toName)}\n` +
-        `👥 ${o.passengers} | 📞 ${this.escapeHtml(o.phone)}\n` +
-        `📅 ${date} | <b>${label}</b>\n\n`;
 
+      const msg =
+        `${emoji}\n\n` +
+        `📍 <b>${this.escapeHtml(o.fromName)}</b> → <b>${this.escapeHtml(o.toName)}</b>\n` +
+        `👥 Yo'lovchilar: ${o.passengers}\n` +
+        `📞 ${this.escapeHtml(o.phone)}\n` +
+        `📅 ${date}\n\n` +
+        `📌 <b>Holat:</b> ${label}`;
+
+      const buttons: any[][] = [];
       if (o.status === 'active') {
-        buttons.push([
-          Markup.button.callback(`✅ Tugatish #${o.id}`, `ride_complete:${o.id}`),
-          Markup.button.callback(`❌ Bekor #${o.id}`, `ride_cancel_order:${o.id}`),
-        ]);
+        buttons.push([Markup.button.callback('✅ Safar tugadi', `ride_complete:${o.id}`)]);
+        buttons.push([Markup.button.callback('❌ Bekor qilish', `ride_cancel_order:${o.id}`)]);
       }
       if (o.status === 'pending') {
-        buttons.push([
-          Markup.button.callback(`❌ Bekor #${o.id}`, `ride_cancel_order:${o.id}`),
-        ]);
+        buttons.push([Markup.button.callback('❌ Bekor qilish', `ride_cancel_order:${o.id}`)]);
       }
-    }
 
-    await this.tgSafe(() =>
-      ctx.reply(msg, {
-        parse_mode: 'HTML',
-        ...(buttons.length ? Markup.inlineKeyboard(buttons) : {}),
-      }),
-    );
+      await this.tgSafe(() =>
+        ctx.reply(msg, {
+          parse_mode: 'HTML',
+          ...(buttons.length ? Markup.inlineKeyboard(buttons) : {}),
+        }),
+      );
+      await this.tgDelay();
+    }
   }
 
   // ================= SHOW LOCATIONS =================
@@ -1596,6 +1619,12 @@ ${contactLine}${phoneLine}`;
     const data = ctx.callbackQuery?.data;
     if (!data) return;
     const userId = ctx.callbackQuery?.from?.id;
+
+    // Rate limit callback queries
+    if (userId && this.isRateLimited(userId)) {
+      await this.tgSafe(() => ctx.answerCbQuery('⚠️ Sekinroq bosing.'));
+      return;
+    }
 
     if (data.startsWith('rm_redirect:')) {
       const chatId = data.replace('rm_redirect:', '');
