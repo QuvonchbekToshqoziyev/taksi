@@ -742,8 +742,10 @@ export class BotUpdate {
     const name = this.escapeHtml(ctx.from?.first_name || '');
     const lastName = this.escapeHtml(ctx.from?.last_name || '');
     const fullName = `${name} ${lastName}`.trim() || 'Noma\'lum';
-    const username = ctx.from?.username
-      ? `@${this.escapeHtml(ctx.from.username)}`
+    const rawUsername = ctx.from?.username;
+    const botUsername = (ctx as any).botInfo?.username;
+    const username = rawUsername && rawUsername.toLowerCase() !== botUsername?.toLowerCase()
+      ? `@${this.escapeHtml(rawUsername)}`
       : null;
     const userId = ctx.from.id;
 
