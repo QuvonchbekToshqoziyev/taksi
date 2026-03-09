@@ -11,9 +11,10 @@ import { RideOrderModule } from './ride-order/ride-order.module';
 import { DriverModule } from './driver/driver.module';
 import { DriverPostModule } from './driver-post/driver-post.module';
 import { PublicChannelModule } from './public-channel/public-channel.module';
+import { UserClientModule } from './user-client/user-client.module';
 
 @Module({
-  imports: [BotModule, RedirectModule, AdminModule, TargetModule, KeywordModule, LocationModule, AdminLogModule, RideOrderModule, DriverModule, DriverPostModule, PublicChannelModule],
+  imports: [BotModule, RedirectModule, AdminModule, TargetModule, KeywordModule, LocationModule, AdminLogModule, RideOrderModule, DriverModule, DriverPostModule, PublicChannelModule, UserClientModule],
   controllers: [],
   providers: [PrismaService],
 })
