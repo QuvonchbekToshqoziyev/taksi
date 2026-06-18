@@ -53,7 +53,10 @@ describe('BotUpdate isTaxiOrder', () => {
 
   it('does not forward non-orders in private chat', async () => {
     const redirectService = { getActiveGroups: jest.fn().mockResolvedValue([]) };
-    const adminService = { isAdmin: jest.fn().mockResolvedValue(false) };
+    const adminService = {
+      isSuperAdmin: jest.fn().mockResolvedValue(false),
+      isAdmin: jest.fn().mockResolvedValue(false),
+    };
     const targetService = { isTargetGroup: jest.fn().mockResolvedValue(false) };
     const keywordService = { getClientKeywords: () => [], getDriverKeywords: () => [] };
     const localBot = new BotUpdate(redirectService as any, adminService as any, targetService as any, keywordService as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any);

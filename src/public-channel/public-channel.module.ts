@@ -1,9 +1,10 @@
 import { Module } from '@nestjs/common';
 import { PublicChannelService } from './public-channel.service';
-import { PrismaService } from 'src/prisma/prisma.service';
+import { PrismaModule } from '../prisma/prisma.module';
 
 @Module({
-  providers: [PublicChannelService, PrismaService],
+  imports: [PrismaModule],
+  providers: [PublicChannelService],
   exports: [PublicChannelService],
 })
 export class PublicChannelModule {}

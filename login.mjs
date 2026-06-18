@@ -6,8 +6,8 @@ import { TelegramClient } from 'telegram';
 import { StringSession } from 'telegram/sessions/index.js';
 import input from 'input';
 
-const API_ID = 36171940;
-const API_HASH = '97ce9ea11830f47ad5f4fe23ca8701e6';
+const API_ID = Number.parseInt(process.env.TG_API_ID || process.env.API_ID || '36171940', 10);
+const API_HASH = process.env.TG_API_HASH || process.env.API_HASH || '97ce9ea11830f47ad5f4fe23ca8701e6';
 
 const session = new StringSession('');
 const client = new TelegramClient(session, API_ID, API_HASH, {

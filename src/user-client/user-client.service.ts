@@ -1,14 +1,18 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  OnModuleDestroy,
+  Optional,
+} from '@nestjs/common';
 import { TelegramClient } from 'telegram';
 import { StringSession } from 'telegram/sessions';
 import { NewMessage, NewMessageEvent } from 'telegram/events';
 import { Api } from 'telegram';
-import { InjectBot } from 'nestjs-telegraf';
-import { Telegraf, Context } from 'telegraf';
 import { KeywordService } from '../keyword/keyword.service';
 import { RedirectService } from '../redirect/redirect.service';
 import { TargetService } from '../target/target.service';
-import * as input from 'input';
+import { BotGateway } from '../bot/bot.gateway';
 
 @Injectable()
 export class UserClientService implements OnModuleInit, OnModuleDestroy {
@@ -16,13 +20,17 @@ export class UserClientService implements OnModuleInit, OnModuleDestroy {
   private client!: TelegramClient;
   private connected = false;
 
+  private readTelegramApiId(): number {
+    const rawValue = process.env.TG_API_ID || process.env.API_ID || '';
+    return parseInt(rawValue, 10);
+  }
+
+  private readTelegramApiHash(): string {
+    return process.env.TG_API_HASH || process.env.API_HASH || '';
+  }
+
   // ---- Same keyword lists as BotUpdate (kept in sync) ----
-  private readonly FORCE_CLIENT_PHRASES: string[] = [
-    'gulistonga taxi bormi',
-    'gulistonga taksi bormi',
-    'toshkentdan kamsamolga taksi bormi',
-    'gulistondan kamsamolga taxi bormi',
-  ];
+  private readonly FORCE_CLIENT_PHRASES: string[] = [];
 
   private readonly DRIVER_WORDS: string[] = [
     'olamiz', 'odam olamiz', 'pochta olamiz', 'yolovchi olamiz',
@@ -49,49 +57,43 @@ export class UserClientService implements OnModuleInit, OnModuleDestroy {
     'hozirga', 'xozirga',
     'такси керак', 'такси кере', 'такси борми', 'керак', 'кк', 'заказ', 'заказ бор',
     'одам бор', 'киши бор', 'почта bor', 'срочни', 'срочна', 'хозирга',
-    'гулистонга бир киши', 'гулистонга 1 кши', 'шахарга бир киши',
   ];
 
   private readonly CLIENT_WORDS_COMBO: string[][] = [
-    ['dandi oldida', '1 kishi'],
-    ['balnisani oldida', '2 kishi'],
-    ['stamatologia oldida', '1 kishi'],
-    ['eski xalq bank oldida', 'bir kishi'],
-    ['yangi bozorda', 'pochta bor'],
-    ['данди олдида', '1 киши'],
-    ['балнисанӣ олдида', '2 киши'],
-    ['стаматология олдида', '1 киши'],
-    ['эски халқ банк олдида', 'бир киши'],
-    ['янги бозорда', 'pochta bor'],
-    ['kamsamoldan ped istutga 1 kishi bor'],
-    ['Towkenga ketadigan taksi bormi'],
-    ['kamsamoldan', 'gulistonga', 'bormi'],
-    ['kamsamoldan', 'gulistonga', 'boraman'],
-    ['камсамолдан', 'гулистонга', 'борми'],
-    ['lelndan', 'kamsamulga', 'pochta bor'],
-    ['лелндан', 'камсамулга', 'почта бор'],
+    ['taksi', 'kerak'],
+    ['taxi', 'kerak'],
+    ['заказ', 'бор'],
+    ['taksi', 'bormi'],
+    ['taxi', 'bormi'],
+    ['mashina', 'bormi'],
   ];
 
   constructor(
-    @InjectBot() private readonly bot: Telegraf<Context>,
+    @Optional() private readonly botGateway: BotGateway | null,
     private readonly keywordService: KeywordService,
     private readonly redirectService: RedirectService,
     private readonly targetService: TargetService,
   ) {}
 
   async onModuleInit() {
-    const apiId = parseInt(process.env.TG_API_ID || '', 10);
-    const apiHash = process.env.TG_API_HASH || '';
+    const apiId = this.readTelegramApiId();
+    const apiHash = this.readTelegramApiHash();
 
     if (!apiId || !apiHash) {
       this.logger.warn(
-        'TG_API_ID / TG_API_HASH not set — user-client disabled. ' +
-        'Get them from https://my.telegram.org',
+        'Telegram user API credentials not set — user-client disabled. ' +
+        'Set TG_API_ID/TG_API_HASH or API_ID/API_HASH from https://my.telegram.org',
       );
       return;
     }
 
     const sessionStr = process.env.TG_SESSION || '';
+    if (!sessionStr.trim()) {
+      this.logger.warn(
+        'TG_SESSION is empty — user-client scouting disabled; bot-based target-group scouting remains active.',
+      );
+      return;
+    }
     const session = new StringSession(sessionStr);
 
     this.client = new TelegramClient(session, apiId, apiHash, {
@@ -99,18 +101,19 @@ export class UserClientService implements OnModuleInit, OnModuleDestroy {
     });
 
     try {
-      await this.client.start({
-        phoneNumber: async () => await input.text('📱 Telefon raqam (+998...): '),
-        password: async () => await input.text('🔑 2FA parol (bo\'lsa): '),
-        phoneCode: async () => await input.text('📩 Telegram kod: '),
-        onError: (err) => this.logger.error('Login error:', err),
-      });
+      await this.client.connect();
+      const authorized = await this.client.checkAuthorization();
+
+      if (!authorized) {
+        this.logger.warn(
+          'Telegram user not authorized. Reuse existing TG_SESSION, or run `node login.mjs` once to generate one.',
+        );
+        await this.client.disconnect();
+        return;
+      }
 
       this.connected = true;
-      const savedSession = this.client.session.save() as unknown as string;
-      this.logger.log('✅ User-client connected! Session string (save to TG_SESSION):');
-      this.logger.log(savedSession);
-
+      this.logger.log('✅ User-client connected with existing Telegram session.');
       this.startListening();
     } catch (err) {
       this.logger.error('Failed to start user-client:', err);
@@ -171,10 +174,9 @@ export class UserClientService implements OnModuleInit, OnModuleDestroy {
     // Get the full chat ID in Bot API format
     const fullChatId = this.getFullChatId(peer);
 
-    // Check if the bot already monitors this group as a target
-    // If so, skip — the bot handles it directly
-    const isBotTarget = await this.targetService.isTargetGroup(String(fullChatId));
-    if (isBotTarget) return;
+    // Only scan admin-added client intake groups.
+    const isIntakeGroup = await this.targetService.isTargetGroup(String(fullChatId));
+    if (!isIntakeGroup) return;
 
     // Check if this is a taxi order
     if (!this.isTaxiOrder(message.text)) return;
@@ -329,13 +331,18 @@ export class UserClientService implements OnModuleInit, OnModuleDestroy {
 
   // ================= FORWARD TO REDIRECT GROUPS =================
   private async forwardToRedirects(htmlMessage: string) {
+    if (!this.botGateway) {
+      this.logger.warn('BotGateway unavailable; skipping user-client forwarding.');
+      return;
+    }
+
     const groups = await this.redirectService.getActiveGroups();
     if (!groups.length) return;
 
     let success = 0;
     for (const g of groups) {
       try {
-        await this.bot.telegram.sendMessage(g.chatId, htmlMessage, {
+        await this.botGateway.getTelegram('admin').sendMessage(g.chatId, htmlMessage, {
           parse_mode: 'HTML',
         });
         success++;

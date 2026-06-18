@@ -81,9 +81,25 @@ model RideOrder {
   toName     String
   passengers Int
   phone      String
-  status     String   @default("pending") // 'pending' | 'active' | 'completed' | 'cancelled'
+  status     String   @default("NEW") // NEW, PARTIAL_MATCH, MATCHED, EXPIRED, CANCELLED
+  features   String[] @default([])
+  time       String?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+  rides      Ride[]
+}
+
+model Ride {
+  id              Int         @id @default(autoincrement())
+  driverId        Int
+  driver          Driver      @relation(fields: [driverId], references: [id])
+  clientRequestId Int
+  clientRequest   RideOrder   @relation(fields: [clientRequestId], references: [id])
+  state           String      @default("CREATED") // CREATED, IN_PROGRESS, COMPLETED, CANCELLED
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@unique([driverId, clientRequestId])
 }
 
 model Driver {
@@ -93,11 +109,17 @@ model Driver {
   phone       String
   carNumber   String
   carPhotoId  String?  // Telegram file_id for car photo
-  status      String   @default("idle") // 'on_road' | 'idle' | 'not_working'
+  status      String   @default("OFFLINE") // OFFLINE, AVAILABLE, FULL, EN_ROUTE
+  seatsAvailable Int   @default(4)
+  features    String[] @default([])
+  fromLocation String?
+  toLocation   String?
+  lastActive  DateTime @default(now())
   isApproved  Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   posts       DriverPost[]
+  rides       Ride[]
 }
 
 model DriverPost {

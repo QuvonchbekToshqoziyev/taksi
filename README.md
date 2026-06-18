@@ -1,98 +1,246 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Taksi Bot - Production Ready
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+A robust, scalable Telegram-based ride coordination platform that minimizes user typing, reduces chaos from group messages, and operates reliably even if scouting partially fails.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+Built with **NestJS**, **Telegraf**, **gramJS**, and **Prisma**.
 
-## Description
+## Architecture
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
-
-## Project setup
-
-```bash
-$ npm install
+```
+src/
+├── core/                    # Core business logic (no Telegram dependencies)
+│   ├── parsing/             # Text parsing & token classification engine
+│   ├── scoring/             # Confidence scoring for requests
+│   ├── matching/            # Driver-request matching engine
+│   ├── state/               # Strict state management with valid transitions
+│   ├── logging/             # Centralized logging service
+│   └── telegram/            # Telegram API retry & error handling
+├── bot/                     # Telegram bot handlers
+│   ├── driver-bot.service.ts    # Driver button-based flows
+│   ├── client-bot.service.ts    # Client structured request flow
+│   └── admin-bot.service.ts     # Admin management features
+├── driver/                  # Driver management service
+├── ride-order/              # Ride order management
+├── keyword/                 # Keyword management
+├── target/                  # Target group management
+├── redirect/                # Redirect group management
+├── user-client/             # Telegram user client (scouting)
+├── admin/                   # Admin management
+└── prisma/                  # Database service
 ```
 
-## Compile and run the project
+## Features
+
+### 🚗 Driver Experience (Zero Typing)
+- **Button-based flows**: Start shift, set route, select seats, select features
+- **State management**: OFFLINE → AVAILABLE → FULL → EN_ROUTE with valid transitions only
+- **Quick actions**: "Repeat last ride", "Update seats (+/-)", "Mark full"
+
+### 👤 Client Experience
+- **Structured request flow**: Buttons + minimal input
+- **Smart parsing**: Automatic intent detection, seat/time/phone extraction
+- **Group message handling**: Detect intent from group messages, reply with bot deep link
+
+### 🔍 2-Layer Scouting System
+- **Layer 1 (Primary)**: Bot-based group monitoring
+- **Layer 2 (Fallback)**: Userbot (isolated module, non-critical)
+
+### 🎯 Intelligent Matching
+- **Route matching**: Exact and partial location matching
+- **Seats availability**: Sufficient seats check
+- **Time proximity**: Active driver prioritization
+- **Features matching**: Common features boost score
+- **Confidence scoring**: ≥4 threshold for valid requests
+
+### 👑 Admin System
+- Add/remove keywords
+- View active drivers & requests
+- Ban/unban users
+- Enable/disable scouting
+- View statistics
+
+## Prerequisites
+
+- Node.js 20+
+- PostgreSQL
+- Telegram Bot Token (from [@BotFather](https://t.me/BotFather))
+- Telegram APP ID and APP HASH (for user client, via [my.telegram.org](https://my.telegram.org))
+
+## Setup & Installation
+
+### 1. Install Dependencies
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+npm install
 ```
 
-## Run tests
+### 2. Configure Environment Variables
+
+Create a `.env` file:
+
+```env
+# Database
+DATABASE_URL="postgresql://user:password@localhost:5432/taksi?schema=public"
+
+# Telegram Bot
+BOT_TOKEN="YOUR_BOT_TOKEN_HERE"
+
+# Telegram User Client (for scouting)
+API_ID="YOUR_API_ID"
+API_HASH="YOUR_API_HASH"
+TG_SESSION="" # Leave blank initially
+
+# Admin
+SUPERADMIN_TG_ID="YOUR_TELEGRAM_ID"
+```
+
+### 3. Database Setup
 
 ```bash
-# unit tests
-$ npm run test
+# Generate Prisma client
+npx prisma generate
 
-# e2e tests
-$ npm run test:e2e
+# Run migrations
+npx prisma migrate dev
 
-# test coverage
-$ npm run test:cov
+# (Optional) View database
+npx prisma studio
 ```
 
-## Deployment
+### 4. Generate TG_SESSION (Optional, for scouting)
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+Run the interactive script to authenticate a Telegram user account:
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+node login.mjs
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+Provide your phone number and OTP when prompted. Copy the resulting session string and paste it into your `.env` file as `TG_SESSION=...`.
 
-## Resources
+### 5. Run the Application
 
-Check out a few resources that may come in handy when working with NestJS:
+```bash
+# Development mode (watch)
+npm run start:dev
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+# Production build
+npm run build
+npm run start:prod
+```
+
+### 6. Run Tests
+
+```bash
+# All tests
+npm test
+
+# Watch mode
+npm run test:watch
+
+# Coverage
+npm run test:cov
+```
+
+## Deployment (PM2)
+
+### Deploy to Remote VPS
+
+```bash
+# Using deploy script
+./deploy.sh
+
+# Or manually with PM2
+pm2 start dist/main.js --name taksi
+pm2 save
+pm2 startup
+```
+
+### Environment Checklist
+
+Before deploying, ensure:
+- [ ] `.env` file is configured on the server
+- [ ] `TG_SESSION` is set (if using scouting)
+- [ ] Database is accessible
+- [ ] `npm run build` succeeds
+- [ ] `npm test` passes
+
+## State Transitions
+
+### Driver States
+```
+OFFLINE → AVAILABLE → FULL → AVAILABLE
+                  ↘ EN_ROUTE → AVAILABLE
+                  ↘ OFFLINE
+```
+
+### Client Request States
+```
+NEW → PARTIAL_MATCH → MATCHED
+  ↘ EXPIRED
+  ↘ CANCELLED
+```
+
+### Ride States
+```
+CREATED → IN_PROGRESS → COMPLETED
+       ↘ CANCELLED
+```
+
+## Scoring System
+
+Requests are scored based on:
+- **Time**: +2 (urgent: +3)
+- **Seats**: +2
+- **Intent**: +2 (clear client/driver intent)
+- **Phone**: +2 (valid), +1 (partial)
+- **Location**: +2 (both from/to), +1 (partial)
+- **Confidence bonus**: +1 (if parsing confidence ≥7)
+
+**Threshold**: ≥4 points = valid request
+
+## API Error Handling
+
+The system includes:
+- Automatic retry for rate limits (429)
+- Flood wait detection and handling
+- Graceful handling of blocked users, forbidden writes, protected content
+- Exponential backoff for transient errors
+
+## Project Structure
+
+```
+taksi/
+├── prisma/
+│   ├── schema.prisma          # Database schema
+│   └── migrations/            # Database migrations
+├── src/
+│   ├── core/                  # Core business logic
+│   │   ├── parsing/           # Text parsing engine
+│   │   ├── scoring/           # Confidence scoring
+│   │   ├── matching/          # Driver-request matching
+│   │   ├── state/             # State management
+│   │   ├── logging/           # Logging service
+│   │   └── telegram/          # Telegram retry logic
+│   ├── bot/                   # Bot handlers
+│   ├── driver/                # Driver management
+│   ├── ride-order/            # Ride order management
+│   ├── keyword/               # Keyword management
+│   ├── target/                # Target group management
+│   ├── redirect/              # Redirect group management
+│   ├── user-client/           # Telegram user client
+│   ├── admin/                 # Admin management
+│   └── prisma/                # Prisma service
+├── login.mjs                  # TG_SESSION generator
+├── deploy.sh                  # Deployment script
+├── package.json
+├── tsconfig.json
+└── README.md
+```
 
 ## Support
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+For issues or questions, contact the development team.
 
 ## License
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+Private - All rights reserved

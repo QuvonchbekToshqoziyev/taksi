@@ -1,9 +1,10 @@
 import { Module } from '@nestjs/common';
 import { KeywordService } from './keyword.service';
-import { PrismaService } from 'src/prisma/prisma.service';
+import { PrismaModule } from '../prisma/prisma.module';
 
 @Module({
-    providers: [KeywordService, PrismaService],
+    imports: [PrismaModule],
+    providers: [KeywordService],
     exports: [KeywordService],
 })
 export class KeywordModule {}

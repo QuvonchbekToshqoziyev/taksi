@@ -1,9 +1,10 @@
 import { Module } from '@nestjs/common';
 import { DriverPostService } from './driver-post.service';
-import { PrismaService } from 'src/prisma/prisma.service';
+import { PrismaModule } from '../prisma/prisma.module';
 
 @Module({
-  providers: [DriverPostService, PrismaService],
+  imports: [PrismaModule],
+  providers: [DriverPostService],
   exports: [DriverPostService],
 })
 export class DriverPostModule {}

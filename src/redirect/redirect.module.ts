@@ -1,9 +1,10 @@
 import { Module } from '@nestjs/common';
 import { RedirectService } from './redirect.service';
-import { PrismaService } from 'src/prisma/prisma.service';
+import { PrismaModule } from '../prisma/prisma.module';
 
 @Module({
-  providers: [RedirectService,PrismaService],
+  imports: [PrismaModule],
+  providers: [RedirectService],
   exports:[RedirectService]
 
 })

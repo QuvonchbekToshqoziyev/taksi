@@ -1,22 +1,27 @@
 import { Module } from '@nestjs/common';
-import { TelegrafModule } from 'nestjs-telegraf';
-import { BotUpdate } from './bot.update';
 import { RedirectModule } from '../redirect/redirect.module';
-import { AdminModule } from 'src/admin/admin.module';
-import { TargetModule } from 'src/target/target.module';
-import { KeywordModule } from 'src/keyword/keyword.module';
-import { LocationModule } from 'src/location/location.module';
-import { AdminLogModule } from 'src/admin-log/admin-log.module';
-import { RideOrderModule } from 'src/ride-order/ride-order.module';
-import { DriverModule } from 'src/driver/driver.module';
-import { DriverPostModule } from 'src/driver-post/driver-post.module';
-import { PublicChannelModule } from 'src/public-channel/public-channel.module';
+import { AdminModule } from '../admin/admin.module';
+import { TargetModule } from '../target/target.module';
+import { KeywordModule } from '../keyword/keyword.module';
+import { LocationModule } from '../location/location.module';
+import { AdminLogModule } from '../admin-log/admin-log.module';
+import { RideOrderModule } from '../ride-order/ride-order.module';
+import { DriverModule } from '../driver/driver.module';
+import { DriverPostModule } from '../driver-post/driver-post.module';
+import { PublicChannelModule } from '../public-channel/public-channel.module';
+import { UserClientModule } from '../user-client/user-client.module';
+import { CoreModule } from '../core/core.module';
+import { DriverBotService } from './services/driver-bot.service';
+import { ClientBotService } from './services/client-bot.service';
+import { AdminBotService } from './services/admin-bot.service';
+import { BotGateway } from './bot.gateway';
+import { BotRuntime } from './bot.runtime';
+import { AdminBotUpdate } from './admin/admin-bot.update';
+import { ClientBotUpdate } from './client/client-bot.update';
+import { DriverBotUpdate } from './driver/driver-bot.update';
 
 @Module({
   imports: [
-    TelegrafModule.forRoot({
-      token: process.env.BOT_TOKEN!,
-    }),
     RedirectModule,
     AdminModule,
     TargetModule,
@@ -27,7 +32,19 @@ import { PublicChannelModule } from 'src/public-channel/public-channel.module';
     DriverModule,
     DriverPostModule,
     PublicChannelModule,
+    UserClientModule,
+    CoreModule,
   ],
-  providers: [BotUpdate],
+  providers: [
+    BotGateway,
+    BotRuntime,
+    AdminBotUpdate,
+    ClientBotUpdate,
+    DriverBotUpdate,
+    DriverBotService,
+    ClientBotService,
+    AdminBotService,
+  ],
+  exports: [BotGateway, BotRuntime],
 })
 export class BotModule {}
