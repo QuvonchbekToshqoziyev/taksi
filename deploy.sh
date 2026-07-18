@@ -4,6 +4,7 @@ set -euo pipefail
 APP_DIR="${APP_DIR:-/opt/taxi-bot}"
 APP_USER="${APP_USER:-taxi-bot}"
 REPO_URL="${REPO_URL:-https://github.com/QuvonchbekToshqoziyev/taksi.git}"
+REPO_REF="${REPO_REF:-main}"
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "Run this script as root so it can manage the systemd service."
@@ -17,15 +18,18 @@ for command_name in git node npm runuser systemctl; do
   }
 done
 
+NODE_BIN="$(command -v node)"
+
 if ! id "${APP_USER}" >/dev/null 2>&1; then
   useradd --system --home-dir "${APP_DIR}" --shell /usr/sbin/nologin "${APP_USER}"
 fi
 
 if [[ -d "${APP_DIR}/.git" ]]; then
-  runuser -u "${APP_USER}" -- git -C "${APP_DIR}" pull --ff-only origin main
+  runuser -u "${APP_USER}" -- git -C "${APP_DIR}" fetch origin "${REPO_REF}"
+  runuser -u "${APP_USER}" -- git -C "${APP_DIR}" checkout --detach FETCH_HEAD
 else
   install -d -o "${APP_USER}" -g "${APP_USER}" "${APP_DIR}"
-  runuser -u "${APP_USER}" -- git clone "${REPO_URL}" "${APP_DIR}"
+  runuser -u "${APP_USER}" -- git clone --branch "${REPO_REF}" --single-branch "${REPO_URL}" "${APP_DIR}"
 fi
 
 if [[ ! -f "${APP_DIR}/.env" ]]; then
@@ -54,7 +58,7 @@ User=${APP_USER}
 Group=${APP_USER}
 WorkingDirectory=${APP_DIR}
 EnvironmentFile=${APP_DIR}/.env
-ExecStart=/usr/bin/node ${APP_DIR}/dist/main.js
+ExecStart=${NODE_BIN} ${APP_DIR}/dist/main.js
 Restart=always
 RestartSec=5
 NoNewPrivileges=true
