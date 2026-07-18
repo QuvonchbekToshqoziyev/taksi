@@ -1,10 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  OnModuleInit,
-  OnModuleDestroy,
-  Optional,
-} from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { TelegramClient } from 'telegram';
 import { StringSession } from 'telegram/sessions';
 import { NewMessage, NewMessageEvent } from 'telegram/events';
@@ -13,9 +7,12 @@ import { KeywordService } from '../keyword/keyword.service';
 import { RedirectService } from '../redirect/redirect.service';
 import { TargetService } from '../target/target.service';
 import { BotGateway } from '../bot/bot.gateway';
+import { RideOrderService } from '../ride-order/ride-order.service';
+import { isTaxiOrderText } from '../bot/update/order-filter.util';
+import { ClientRequestState } from '../core/state/state.types';
 
 @Injectable()
-export class UserClientService implements OnModuleInit, OnModuleDestroy {
+export class UserClientService implements OnModuleDestroy {
   private readonly logger = new Logger(UserClientService.name);
   private client!: TelegramClient;
   private connected = false;
@@ -29,60 +26,23 @@ export class UserClientService implements OnModuleInit, OnModuleDestroy {
     return process.env.TG_API_HASH || process.env.API_HASH || '';
   }
 
-  // ---- Same keyword lists as BotUpdate (kept in sync) ----
-  private readonly FORCE_CLIENT_PHRASES: string[] = [];
-
-  private readonly DRIVER_WORDS: string[] = [
-    'olamiz', 'odam olamiz', 'pochta olamiz', 'yolovchi olamiz',
-    'taksi bor', 'taxi bor', 'mashina bor', 'mashina bormi',
-    'bosh mashina bor', 'bosh taksi bor', 'kim ketadi', 'kim boradi',
-    'оламиз', 'одам оламиз', 'почта оламиз', 'йўловчи оламиз',
-    'такси бор', 'машина бор', 'машина борми', 'бош машина бор',
-    'бош такси бор', 'ким кетади', 'ким боради',
-    'obketaman', 'olib ketaman', 'obketamiz',
-    'bosh moshin', 'mowina bor', 'tel +',
-    'обкетаман', 'олиб кетаман', 'бош мошин',
-    'мошина бор',
-  ];
-
-  private readonly CLIENT_WORDS_SINGLE: string[] = [
-    'taksi kerak', 'taxi kerak', 'taksi kere', 'taxi kere',
-    'kerak', 'kere', 'kk', 'zakaz', 'zakaz bor',
-    'odam bor', 'kishi bor', 'pochta bor', 'srochni',
-    'bormi', 'boraman', 'boramiz',
-    'taksi bormi', 'taxi bormi', 'mashina bormi', 'moshina bormi',
-    'srochna', 'dastavka bor', 'dostavka bor',
-    'bir kishi', 'bir odam', '1 kishi', '1kishi', '2kishi', 'kishimiz',
-    'kshi bor', 'kiwi bor', 'yolkira',
-    'hozirga', 'xozirga',
-    'такси керак', 'такси кере', 'такси борми', 'керак', 'кк', 'заказ', 'заказ бор',
-    'одам бор', 'киши бор', 'почта bor', 'срочни', 'срочна', 'хозирга',
-  ];
-
-  private readonly CLIENT_WORDS_COMBO: string[][] = [
-    ['taksi', 'kerak'],
-    ['taxi', 'kerak'],
-    ['заказ', 'бор'],
-    ['taksi', 'bormi'],
-    ['taxi', 'bormi'],
-    ['mashina', 'bormi'],
-  ];
-
   constructor(
-    @Optional() private readonly botGateway: BotGateway | null,
+    private readonly botGateway: BotGateway,
     private readonly keywordService: KeywordService,
     private readonly redirectService: RedirectService,
     private readonly targetService: TargetService,
+    private readonly rideOrderService: RideOrderService,
   ) {}
 
-  async onModuleInit() {
+  async start() {
+    if (this.connected) return;
     const apiId = this.readTelegramApiId();
     const apiHash = this.readTelegramApiHash();
 
     if (!apiId || !apiHash) {
       this.logger.warn(
         'Telegram user API credentials not set — user-client disabled. ' +
-        'Set TG_API_ID/TG_API_HASH or API_ID/API_HASH from https://my.telegram.org',
+          'Set TG_API_ID/TG_API_HASH or API_ID/API_HASH from https://my.telegram.org',
       );
       return;
     }
@@ -113,7 +73,9 @@ export class UserClientService implements OnModuleInit, OnModuleDestroy {
       }
 
       this.connected = true;
-      this.logger.log('✅ User-client connected with existing Telegram session.');
+      this.logger.log(
+        '✅ User-client connected with existing Telegram session.',
+      );
       this.startListening();
     } catch (err) {
       this.logger.error('Failed to start user-client:', err);
@@ -163,8 +125,7 @@ export class UserClientService implements OnModuleInit, OnModuleDestroy {
 
     // Check if this is a group/channel (not private)
     const isGroup =
-      peer.className === 'PeerChat' ||
-      peer.className === 'PeerChannel';
+      peer.className === 'PeerChat' || peer.className === 'PeerChannel';
     if (!isGroup) return;
 
     // Skip messages from the user-client's own account
@@ -175,7 +136,9 @@ export class UserClientService implements OnModuleInit, OnModuleDestroy {
     const fullChatId = this.getFullChatId(peer);
 
     // Only scan admin-added client intake groups.
-    const isIntakeGroup = await this.targetService.isTargetGroup(String(fullChatId));
+    const isIntakeGroup = await this.targetService.isTargetGroup(
+      String(fullChatId),
+    );
     if (!isIntakeGroup) return;
 
     // Check if this is a taxi order
@@ -193,7 +156,7 @@ export class UserClientService implements OnModuleInit, OnModuleDestroy {
     }
 
     // Get sender info
-    let senderName = 'Noma\'lum';
+    let senderName = "Noma'lum";
     let senderUsername: string | null = null;
     let senderId: bigint | undefined;
     try {
@@ -203,7 +166,7 @@ export class UserClientService implements OnModuleInit, OnModuleDestroy {
         if (sender instanceof Api.User) {
           const first = sender.firstName || '';
           const last = sender.lastName || '';
-          senderName = `${first} ${last}`.trim() || 'Noma\'lum';
+          senderName = `${first} ${last}`.trim() || "Noma'lum";
           senderUsername = sender.username || null;
         }
       }
@@ -214,18 +177,36 @@ export class UserClientService implements OnModuleInit, OnModuleDestroy {
     // Extract phone from message
     const phone = this.extractPhone(message.text);
 
-    // Build scout message
-    const scoutMsg = this.buildScoutMessage(
-      message.text,
-      chatTitle,
-      senderName,
-      senderUsername,
-      senderId ? Number(senderId) : undefined,
-      phone,
-    );
+    if (!senderId) return;
+    const stored = await this.rideOrderService.createFromGroup({
+      userTgId: Number(senderId),
+      sourceChatId: String(fullChatId),
+      sourceMessageId: message.id,
+      sourceText: message.text,
+      sourceTitle: chatTitle,
+      passengers: this.extractPassengers(message.text),
+      phone: phone || undefined,
+    });
+    if (!stored.created) return;
 
     // Send to all redirect groups via bot
-    await this.forwardToRedirects(scoutMsg);
+    const forwarded = await this.forwardToRedirects(
+      this.buildScoutMessage(
+        stored.order.id,
+        message.text,
+        chatTitle,
+        senderName,
+        senderUsername,
+        Number(senderId),
+        phone,
+      ),
+    );
+    if (forwarded === 0) {
+      await this.rideOrderService.updateStatus(
+        stored.order.id,
+        ClientRequestState.CANCELLED,
+      );
+    }
   }
 
   // ================= CHAT ID HELPER =================
@@ -251,45 +232,26 @@ export class UserClientService implements OnModuleInit, OnModuleDestroy {
       .trim();
   }
 
-  private escapeRegex(value: string): string {
-    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  }
-
-  private hasPhrase(text: string, phrase: string): boolean {
-    const p = this.normalizeOrderText(phrase);
-    if (!p) return false;
-    const body = this.escapeRegex(p).replace(/\s+/g, '\\s+');
-    const re = new RegExp(`(^|\\s)${body}(?=\\s|$)`, 'u');
-    return re.test(text);
-  }
-
-  private hasAnyPhrase(text: string, phrases: string[]): boolean {
-    for (const phrase of phrases) {
-      if (this.hasPhrase(text, phrase)) return true;
-    }
-    return false;
-  }
-
   private isTaxiOrder(text: string): boolean {
-    const t = this.normalizeOrderText(text);
-    if (!t) return false;
-
-    if (this.hasAnyPhrase(t, this.DRIVER_WORDS)) return false;
-    if (this.hasAnyPhrase(t, this.keywordService.getDriverKeywords())) return false;
-    if (this.hasAnyPhrase(t, this.FORCE_CLIENT_PHRASES)) return true;
-    if (this.hasAnyPhrase(t, this.CLIENT_WORDS_SINGLE)) return true;
-    if (this.hasAnyPhrase(t, this.keywordService.getClientKeywords())) return true;
-
-    for (const pattern of this.CLIENT_WORDS_COMBO) {
-      if (pattern.every(p => this.hasPhrase(t, p))) return true;
-    }
-
-    return false;
+    return isTaxiOrderText({
+      text,
+      clientKeywords: this.keywordService.getClientKeywords(),
+      driverKeywords: this.keywordService.getDriverKeywords(),
+    });
   }
 
   private extractPhone(text: string): string | null {
-    const m = (text || '').match(/(\+?998\d{9}|\b(90|91|93|94|95|97|98|99)\d{7}\b)/);
+    const m = (text || '').match(
+      /(\+?998\d{9}|\b(90|91|93|94|95|97|98|99)\d{7}\b)/,
+    );
     return m?.[0] || null;
+  }
+
+  private extractPassengers(text: string): number {
+    const match = (text || '').match(
+      /\b([1-9])\s*(?:kishi|odam|yo['’]?lovchi|киши|одам)\b/iu,
+    );
+    return match ? Number(match[1]) : 1;
   }
 
   // ================= BUILD SCOUT MESSAGE =================
@@ -302,6 +264,7 @@ export class UserClientService implements OnModuleInit, OnModuleDestroy {
   }
 
   private buildScoutMessage(
+    orderId: number,
     originalText: string,
     chatTitle: string,
     senderName: string,
@@ -314,35 +277,31 @@ export class UserClientService implements OnModuleInit, OnModuleDestroy {
     const name = this.escapeHtml(senderName);
 
     const contactLine = senderId
-      ? (senderUsername
-          ? `👤 <b>Ism:</b> <a href="tg://user?id=${senderId}">${name}</a> (@${this.escapeHtml(senderUsername)})`
-          : `👤 <b>Ism:</b> <a href="tg://user?id=${senderId}">${name}</a>`)
+      ? senderUsername
+        ? `👤 <b>Ism:</b> <a href="tg://user?id=${senderId}">${name}</a> (@${this.escapeHtml(senderUsername)})`
+        : `👤 <b>Ism:</b> <a href="tg://user?id=${senderId}">${name}</a>`
       : `👤 <b>Ism:</b> ${name}`;
 
     const phoneLine = phone ? `\n📞 ${this.escapeHtml(phone)}` : '';
 
     return (
-      `🔍 <b>Scout: Yangi zakaz topildi!</b>\n` +
+      `🔍 <b>Yangi zakaz #${orderId}</b>\n` +
       `📍 ${source}\n\n` +
       `${text}\n\n` +
-      `${contactLine}${phoneLine}`
+      `${contactLine}${phoneLine}\n\n` +
+      `Qabul qilish uchun shu xabarga <b>olindi</b> deb javob bering.`
     );
   }
 
   // ================= FORWARD TO REDIRECT GROUPS =================
   private async forwardToRedirects(htmlMessage: string) {
-    if (!this.botGateway) {
-      this.logger.warn('BotGateway unavailable; skipping user-client forwarding.');
-      return;
-    }
-
     const groups = await this.redirectService.getActiveGroups();
-    if (!groups.length) return;
+    if (!groups.length) return 0;
 
     let success = 0;
     for (const g of groups) {
       try {
-        await this.botGateway.getTelegram('admin').sendMessage(g.chatId, htmlMessage, {
+        await this.botGateway.getTelegram().sendMessage(g.chatId, htmlMessage, {
           parse_mode: 'HTML',
         });
         success++;
@@ -360,11 +319,12 @@ export class UserClientService implements OnModuleInit, OnModuleDestroy {
         }
       }
       // Small delay to avoid rate limits
-      await new Promise(r => setTimeout(r, 150));
+      await new Promise((r) => setTimeout(r, 150));
     }
 
     if (success > 0) {
       this.logger.log(`🔍 Scout (user-client): zakaz → ${success} redirect`);
     }
+    return success;
   }
 }

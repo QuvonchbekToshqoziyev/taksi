@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { BotRuntime } from './bot/bot.runtime';
+import { UserClientService } from './user-client/user-client.service';
 
 function loadEnvFile(filePath: string) {
   if (!existsSync(filePath)) {
@@ -46,6 +47,7 @@ async function bootstrap() {
   const app = await NestFactory.createApplicationContext(AppModule);
   const botRuntime = app.get(BotRuntime);
   await botRuntime.start();
+  await app.get(UserClientService).start();
 
   process.once('SIGINT', async () => {
     botRuntime.stop();

@@ -15,7 +15,7 @@ export class ParsingEngine {
     const normalized = this.normalize(text);
     const tokens = this.tokenize(normalized);
     const classified = this.classifyTokens(tokens);
-    
+
     return this.extractStructuredData(classified, normalized);
   }
 
@@ -45,7 +45,7 @@ export class ParsingEngine {
    */
   private classifyTokens(tokens: string[]): ClassifiedToken[] {
     const classified: ClassifiedToken[] = [];
-    
+
     for (const token of tokens) {
       const category = this.categorizeToken(token);
       classified.push({
@@ -170,7 +170,7 @@ export class ParsingEngine {
 
     if (hasDriver && !hasClient) return 'driver';
     if (hasClient && !hasDriver) return 'client';
-    
+
     // If both present, check which has stronger signals
     if (hasDriver && hasClient) {
       // Driver phrases are more specific (olamiz, obketaman, etc.)

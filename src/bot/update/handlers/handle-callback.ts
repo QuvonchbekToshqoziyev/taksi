@@ -10,9 +10,8 @@ export async function handleCallback(self: any, ctx: any) {
   const data = ctx.callbackQuery?.data;
   if (!data) return;
   const userId = ctx.callbackQuery?.from?.id;
-  const cbId = String(ctx.callbackQuery?.id || '');
 
-  if (!self.tryAcquireActionLock(`${cbId}:${data}`)) {
+  if (!self.tryAcquireActionLock(`${userId}:${data}`)) {
     await self.tgSafe(() => ctx.answerCbQuery('⌛ Amal allaqachon bajarilgan'));
     return;
   }
@@ -31,7 +30,8 @@ export async function handleCallback(self: any, ctx: any) {
     data.startsWith('add_loc:') ||
     data.startsWith('rm_loc:') ||
     data.startsWith('restore_log:') ||
-    data.startsWith('rm_pub_ch:');
+    data.startsWith('rm_pub_ch:') ||
+    data.startsWith('driver_approve:');
   const isClientAction = data.startsWith('ride_');
   const isDriverAction = data.startsWith('dpost_');
 
@@ -40,6 +40,22 @@ export async function handleCallback(self: any, ctx: any) {
       ctx.answerCbQuery('⛔ Bu amal bu botda mavjud emas.'),
     );
     return;
+  }
+  if (isAdminAction) {
+    const isSuperAdmin = await self.adminService.isSuperAdmin(userId);
+    const isLocationAction =
+      data.startsWith('loc_view:') ||
+      data.startsWith('add_loc:') ||
+      data.startsWith('rm_loc:');
+    const isAdmin = isSuperAdmin || (await self.adminService.isAdmin(ctx));
+    if (!isAdmin || (!isLocationAction && !isSuperAdmin)) {
+      await self.tgSafe(() =>
+        ctx.answerCbQuery(
+          isLocationAction ? '⛔ Faqat admin' : '⛔ Faqat superadmin',
+        ),
+      );
+      return;
+    }
   }
   if (isClientAction && !self.isClientAudience()) {
     await self.tgSafe(() =>
@@ -124,6 +140,37 @@ export async function handleCallback(self: any, ctx: any) {
       });
       await self.tgSafe(() => ctx.answerCbQuery('Oʻchirildi'));
       await self.tgSafe(() => ctx.editMessageText('❌ Kalit soʻz oʻchirildi'));
+    }
+  }
+
+  if (data.startsWith('driver_approve:')) {
+    const id = parseInt(data.split(':')[1], 10);
+    if (!isNaN(id)) {
+      const driver = await self.driverService.setApproval(id, true);
+      await self.adminLogService.log({
+        adminTgId: userId,
+        action: 'approve',
+        targetType: 'driver',
+        targetId: String(id),
+        details: `${driver.fullName} (${driver.carNumber})`,
+      });
+      await self.tgSafe(() => ctx.answerCbQuery('Tasdiqlandi'));
+      await self.tgSafe(() =>
+        ctx.editMessageText(
+          `✅ Tasdiqlandi: ${self.escapeHtml(driver.fullName)}`,
+        ),
+      );
+      try {
+        await ctx.telegram.sendMessage(
+          Number(driver.tgId),
+          '✅ Haydovchi profilingiz tasdiqlandi.',
+        );
+      } catch (err) {
+        self.logEvent('driver_approval_notify_error', {
+          driverId: id,
+          error: self.getErrDesc(err),
+        });
+      }
     }
   }
 
@@ -300,9 +347,21 @@ export async function handleCallback(self: any, ctx: any) {
         userId,
         error: self.getErrDesc(err),
       });
+      await self.tgSafe(() =>
+        ctx.editMessageText(
+          "❌ Buyurtma saqlanmadi. Iltimos, qaytadan urinib ko'ring.",
+        ),
+      );
+      return;
     }
 
     const success = await self.sendRideOrder(ctx, state, order);
+    if (success === 0) {
+      await self.rideOrderService.updateStatus(
+        order.id,
+        ClientRequestState.CANCELLED,
+      );
+    }
     self.rideState.delete(userId);
 
     if (success > 0) {
@@ -357,10 +416,16 @@ export async function handleCallback(self: any, ctx: any) {
       return;
     }
 
-    await self.rideOrderService.updateStatus(
+    const changed = await self.rideOrderService.updateStatus(
       orderId,
       ClientRequestState.CANCELLED,
     );
+    if (!changed) {
+      await self.tgSafe(() =>
+        ctx.answerCbQuery("Buyurtma holati allaqachon o'zgargan"),
+      );
+      return;
+    }
     await self.tgSafe(() => ctx.answerCbQuery('Bekor qilindi'));
     await self.tgSafe(() =>
       ctx.editMessageText('❌ Buyurtma #' + orderId + ' bekor qilindi.'),
@@ -384,10 +449,16 @@ export async function handleCallback(self: any, ctx: any) {
       return;
     }
 
-    await self.rideOrderService.updateStatus(
+    const changed = await self.rideOrderService.updateStatus(
       orderId,
       ClientRequestState.EXPIRED,
     );
+    if (!changed) {
+      await self.tgSafe(() =>
+        ctx.answerCbQuery("Buyurtma holati allaqachon o'zgargan"),
+      );
+      return;
+    }
     await self.tgSafe(() => ctx.answerCbQuery('Tugallandi'));
     await self.tgSafe(() =>
       ctx.editMessageText('✅ Buyurtma #' + orderId + ' tugallandi. Rahmat!'),
@@ -493,6 +564,10 @@ export async function handleCallback(self: any, ctx: any) {
       await self.tgSafe(() => ctx.answerCbQuery("Avval ro'yxatdan o'ting"));
       return;
     }
+    if (!driver.isApproved) {
+      await self.tgSafe(() => ctx.answerCbQuery("Admin tasdig'ini kuting"));
+      return;
+    }
 
     await self.tgSafe(() => ctx.answerCbQuery());
 
@@ -511,6 +586,12 @@ export async function handleCallback(self: any, ctx: any) {
         userId,
         error: self.getErrDesc(err),
       });
+      await self.tgSafe(() =>
+        ctx.editMessageText(
+          "❌ E'lon saqlanmadi. Iltimos, qaytadan urinib ko'ring.",
+        ),
+      );
+      return;
     }
 
     const success = await self.sendDriverPostToChannels(ctx, driver, {
@@ -554,7 +635,7 @@ export async function handleCallback(self: any, ctx: any) {
       return;
     }
 
-    await self.driverPostService.closePost(postId);
+    await self.closeDriverPost(ctx, post);
     await self.tgSafe(() => ctx.answerCbQuery('Yopildi'));
     await self.tgSafe(() => ctx.editMessageText("❌ E'lon yopildi."));
   }

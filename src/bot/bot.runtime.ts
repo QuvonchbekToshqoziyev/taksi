@@ -4,6 +4,7 @@ import { BotGateway } from './bot.gateway';
 import { AdminBotUpdate } from './admin/admin-bot.update';
 import { ClientBotUpdate } from './client/client-bot.update';
 import { DriverBotUpdate } from './driver/driver-bot.update';
+import { BotUpdate } from './bot.update';
 import type { SafeContext } from './update/bot-update.types';
 
 type BotRole = 'admin' | 'client' | 'driver';
@@ -18,10 +19,26 @@ export class BotRuntime {
     private readonly adminBotUpdate: AdminBotUpdate,
     private readonly clientBotUpdate: ClientBotUpdate,
     private readonly driverBotUpdate: DriverBotUpdate,
+    private readonly combinedBotUpdate: BotUpdate,
   ) {}
 
   async start() {
     const legacyToken = process.env.BOT_TOKEN;
+    const dedicatedTokensConfigured = Boolean(
+      process.env.ADMIN_BOT_TOKEN ||
+      process.env.CLIENT_BOT_TOKEN ||
+      process.env.DRIVER_BOT_TOKEN,
+    );
+
+    if (legacyToken && !dedicatedTokensConfigured) {
+      await this.startBot('admin', legacyToken, this.combinedBotUpdate);
+      if (!this.bots.size) {
+        throw new Error('The BOT_TOKEN bot could not be started.');
+      }
+      this.logger.log('Telegraf bot runtime started in combined mode');
+      return;
+    }
+
     const adminToken = process.env.ADMIN_BOT_TOKEN || legacyToken;
     const clientToken = process.env.CLIENT_BOT_TOKEN;
     const driverToken = process.env.DRIVER_BOT_TOKEN;
@@ -70,7 +87,9 @@ export class BotRuntime {
     await Promise.allSettled(jobs);
 
     if (!this.bots.size) {
-      throw new Error('No bot could be started. Check bot tokens and network access.');
+      throw new Error(
+        'No bot could be started. Check bot tokens and network access.',
+      );
     }
 
     this.logger.log(
@@ -128,5 +147,13 @@ export class BotRuntime {
     }
     this.bots.clear();
     this.logger.log('Telegraf bot runtime stopped');
+  }
+
+  getStatus(): Record<BotRole, boolean> {
+    return {
+      admin: this.bots.has('admin'),
+      client: this.bots.has('client'),
+      driver: this.bots.has('driver'),
+    };
   }
 }

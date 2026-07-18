@@ -70,7 +70,7 @@ export class AdminBotService {
    */
   async showActiveDrivers(ctx: SafeContext) {
     const drivers = await this.driverService.getAvailableDrivers();
-    
+
     if (drivers.length === 0) {
       await ctx.reply('🚗 Faol haydovchilar yo\'q.');
       return;
@@ -92,7 +92,7 @@ export class AdminBotService {
    */
   async showActiveOrders(ctx: SafeContext) {
     const orders = await this.rideOrderService.getNewOrders();
-    
+
     if (orders.length === 0) {
       await ctx.reply('📋 Faol buyurtmalar yo\'q.');
       return;
@@ -161,7 +161,7 @@ export class AdminBotService {
    */
   async showTargetGroups(ctx: SafeContext) {
     const groups = await this.targetService.getActiveGroups();
-    
+
     if (groups.length === 0) {
       await ctx.reply('🎯 Nishon guruhlar yo\'q.');
       return;

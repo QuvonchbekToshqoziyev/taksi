@@ -40,7 +40,13 @@ export class DriverPostService {
   async getById(id: number) {
     return this.prisma.driverPost.findUnique({
       where: { id },
-      include: { driver: true },
+      include: { driver: true, messages: true },
+    });
+  }
+
+  async recordMessage(postId: number, chatId: string, messageId: number) {
+    return this.prisma.driverPostMessage.create({
+      data: { postId, chatId, messageId },
     });
   }
 

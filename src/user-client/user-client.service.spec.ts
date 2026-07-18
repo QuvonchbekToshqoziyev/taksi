@@ -4,11 +4,24 @@ describe('UserClientService', () => {
   describe('keyword matching', () => {
     const createService = () => {
       const bot = { telegram: {} } as any;
-      const keywordService = { getClientKeywords: () => [], getDriverKeywords: () => [] };
-      const redirectService = { getActiveGroups: jest.fn().mockResolvedValue([]) };
-      const targetService = { isTargetGroup: jest.fn().mockResolvedValue(false) };
+      const keywordService = {
+        getClientKeywords: () => [],
+        getDriverKeywords: () => [],
+      };
+      const redirectService = {
+        getActiveGroups: jest.fn().mockResolvedValue([]),
+      };
+      const targetService = {
+        isTargetGroup: jest.fn().mockResolvedValue(false),
+      };
 
-      return new UserClientService(bot, keywordService as any, redirectService as any, targetService as any);
+      return new UserClientService(
+        bot,
+        keywordService as any,
+        redirectService as any,
+        targetService as any,
+        {} as any,
+      );
     };
 
     it('matches client keywords', () => {
@@ -111,9 +124,9 @@ describe('UserClientService', () => {
       const isTaxiOrder = (text: string) => (service as any).isTaxiOrder(text);
 
       const comboMessages = [
-        'taksi kerak hozir',  // 'taksi' + 'kerak' both present
-        'taxi kerak ertaga',  // 'taxi' + 'kerak' both present
-        'taksi bormi bugun',  // 'taksi' + 'bormi' both present
+        'taksi kerak hozir', // 'taksi' + 'kerak' both present
+        'taxi kerak ertaga', // 'taxi' + 'kerak' both present
+        'taksi bormi bugun', // 'taksi' + 'bormi' both present
       ];
 
       for (const text of comboMessages) {
@@ -125,11 +138,7 @@ describe('UserClientService', () => {
       const service = createService();
       const isTaxiOrder = (text: string) => (service as any).isTaxiOrder(text);
 
-      const samples = [
-        'TAKSI KERAK',
-        'Taxi Kerak',
-        'Taksi kerak',
-      ];
+      const samples = ['TAKSI KERAK', 'Taxi Kerak', 'Taksi kerak'];
 
       for (const text of samples) {
         expect(isTaxiOrder(text)).toBe(true);
@@ -171,16 +180,30 @@ describe('UserClientService', () => {
   describe('normalizeOrderText', () => {
     const createService = () => {
       const bot = { telegram: {} } as any;
-      const keywordService = { getClientKeywords: () => [], getDriverKeywords: () => [] };
-      const redirectService = { getActiveGroups: jest.fn().mockResolvedValue([]) };
-      const targetService = { isTargetGroup: jest.fn().mockResolvedValue(false) };
+      const keywordService = {
+        getClientKeywords: () => [],
+        getDriverKeywords: () => [],
+      };
+      const redirectService = {
+        getActiveGroups: jest.fn().mockResolvedValue([]),
+      };
+      const targetService = {
+        isTargetGroup: jest.fn().mockResolvedValue(false),
+      };
 
-      return new UserClientService(bot, keywordService as any, redirectService as any, targetService as any);
+      return new UserClientService(
+        bot,
+        keywordService as any,
+        redirectService as any,
+        targetService as any,
+        {} as any,
+      );
     };
 
     it('converts text to lowercase', () => {
       const service = createService();
-      const normalizeOrderText = (text: string) => (service as any).normalizeOrderText(text);
+      const normalizeOrderText = (text: string) =>
+        (service as any).normalizeOrderText(text);
 
       expect(normalizeOrderText('TAKSI KERAK')).toBe('taksi kerak');
       expect(normalizeOrderText('Taxi Bormi')).toBe('taxi bormi');
@@ -188,7 +211,8 @@ describe('UserClientService', () => {
 
     it('removes apostrophes and quotes', () => {
       const service = createService();
-      const normalizeOrderText = (text: string) => (service as any).normalizeOrderText(text);
+      const normalizeOrderText = (text: string) =>
+        (service as any).normalizeOrderText(text);
 
       expect(normalizeOrderText("yo'lkira")).toBe('yolkira');
       expect(normalizeOrderText('Kamsamoʻldan')).toBe('kamsamoldan');
@@ -197,7 +221,8 @@ describe('UserClientService', () => {
 
     it('separates numbers from letters', () => {
       const service = createService();
-      const normalizeOrderText = (text: string) => (service as any).normalizeOrderText(text);
+      const normalizeOrderText = (text: string) =>
+        (service as any).normalizeOrderText(text);
 
       expect(normalizeOrderText('1kishi')).toBe('1 kishi');
       expect(normalizeOrderText('2kishimiz')).toBe('2 kishimiz');
@@ -206,7 +231,8 @@ describe('UserClientService', () => {
 
     it('handles empty or null input', () => {
       const service = createService();
-      const normalizeOrderText = (text: string) => (service as any).normalizeOrderText(text);
+      const normalizeOrderText = (text: string) =>
+        (service as any).normalizeOrderText(text);
 
       expect(normalizeOrderText('')).toBe('');
       expect(normalizeOrderText(null as any)).toBe('');
@@ -215,7 +241,8 @@ describe('UserClientService', () => {
 
     it('preserves cyrillic text', () => {
       const service = createService();
-      const normalizeOrderText = (text: string) => (service as any).normalizeOrderText(text);
+      const normalizeOrderText = (text: string) =>
+        (service as any).normalizeOrderText(text);
 
       expect(normalizeOrderText('ТАКСИ КЕРАК')).toBe('такси керак');
       expect(normalizeOrderText('Гулистонга 1 киши')).toBe('гулистонга 1 киши');
@@ -225,16 +252,30 @@ describe('UserClientService', () => {
   describe('extractPhone', () => {
     const createService = () => {
       const bot = { telegram: {} } as any;
-      const keywordService = { getClientKeywords: () => [], getDriverKeywords: () => [] };
-      const redirectService = { getActiveGroups: jest.fn().mockResolvedValue([]) };
-      const targetService = { isTargetGroup: jest.fn().mockResolvedValue(false) };
+      const keywordService = {
+        getClientKeywords: () => [],
+        getDriverKeywords: () => [],
+      };
+      const redirectService = {
+        getActiveGroups: jest.fn().mockResolvedValue([]),
+      };
+      const targetService = {
+        isTargetGroup: jest.fn().mockResolvedValue(false),
+      };
 
-      return new UserClientService(bot, keywordService as any, redirectService as any, targetService as any);
+      return new UserClientService(
+        bot,
+        keywordService as any,
+        redirectService as any,
+        targetService as any,
+        {} as any,
+      );
     };
 
     it('extracts Uzbek phone numbers', () => {
       const service = createService();
-      const extractPhone = (text: string) => (service as any).extractPhone(text);
+      const extractPhone = (text: string) =>
+        (service as any).extractPhone(text);
 
       expect(extractPhone('+998901234567')).toBe('+998901234567');
       expect(extractPhone('901234567')).toBe('901234567');
@@ -249,7 +290,8 @@ describe('UserClientService', () => {
 
     it('extracts phone from message text', () => {
       const service = createService();
-      const extractPhone = (text: string) => (service as any).extractPhone(text);
+      const extractPhone = (text: string) =>
+        (service as any).extractPhone(text);
 
       expect(extractPhone('taksi kerak 901234567')).toBe('901234567');
       expect(extractPhone('telefon: +998901234567')).toBe('+998901234567');
@@ -258,7 +300,8 @@ describe('UserClientService', () => {
 
     it('returns null when no phone found', () => {
       const service = createService();
-      const extractPhone = (text: string) => (service as any).extractPhone(text);
+      const extractPhone = (text: string) =>
+        (service as any).extractPhone(text);
 
       expect(extractPhone('taksi kerak')).toBeNull();
       expect(extractPhone('salom')).toBeNull();

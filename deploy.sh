@@ -1,95 +1,72 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
-# ============================================
-#  Taxi Bot — Ubuntu Server Deploy Script
-# ============================================
-# Usage:
-#   1. Copy this script to your Ubuntu server
-#   2. chmod +x deploy.sh
-#   3. sudo ./deploy.sh
-# ============================================
+APP_DIR="${APP_DIR:-/opt/taxi-bot}"
+APP_USER="${APP_USER:-taxi-bot}"
+REPO_URL="${REPO_URL:-https://github.com/QuvonchbekToshqoziyev/taksi.git}"
 
-APP_DIR="/opt/taxi-bot"
-REPO_URL="https://github.com/QuvonchbekToshqoziyev/taksi.git"
-APP_SUBDIR="Taxi_manitor"
-NODE_VERSION="20"
-DB_NAME="taksi"
-DB_USER="postgres"
-DB_PASS="1111"
-
-echo "===> 1. Updating system packages..."
-apt update && apt upgrade -y
-
-echo "===> 2. Installing Node.js ${NODE_VERSION}.x..."
-if ! command -v node &>/dev/null; then
-  curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash -
-  apt install -y nodejs
+if [[ "${EUID}" -ne 0 ]]; then
+  echo "Run this script as root so it can manage the systemd service."
+  exit 1
 fi
-echo "Node: $(node -v), npm: $(npm -v)"
 
-echo "===> 3. Installing PostgreSQL..."
-if ! command -v psql &>/dev/null; then
-  apt install -y postgresql postgresql-contrib
+for command_name in git node npm runuser systemctl; do
+  command -v "${command_name}" >/dev/null || {
+    echo "Missing required command: ${command_name}"
+    exit 1
+  }
+done
+
+if ! id "${APP_USER}" >/dev/null 2>&1; then
+  useradd --system --home-dir "${APP_DIR}" --shell /usr/sbin/nologin "${APP_USER}"
 fi
-systemctl enable postgresql
-systemctl start postgresql
 
-echo "===> 4. Setting up database..."
-sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'" | grep -q 1 || \
-  sudo -u postgres psql -c "CREATE DATABASE ${DB_NAME};"
-sudo -u postgres psql -c "ALTER USER ${DB_USER} PASSWORD '${DB_PASS}';"
-
-echo "===> 5. Cloning repository..."
-if [ -d "$APP_DIR" ]; then
-  echo "Directory $APP_DIR already exists, pulling latest changes..."
-  cd "$APP_DIR" && git pull origin main
+if [[ -d "${APP_DIR}/.git" ]]; then
+  runuser -u "${APP_USER}" -- git -C "${APP_DIR}" pull --ff-only origin main
 else
-  git clone "$REPO_URL" "$APP_DIR"
+  install -d -o "${APP_USER}" -g "${APP_USER}" "${APP_DIR}"
+  runuser -u "${APP_USER}" -- git clone "${REPO_URL}" "${APP_DIR}"
 fi
 
-cd "$APP_DIR/$APP_SUBDIR"
+if [[ ! -f "${APP_DIR}/.env" ]]; then
+  echo "Missing ${APP_DIR}/.env. Copy .env.example and provide real secrets first."
+  exit 1
+fi
 
-echo "===> 6. Installing npm dependencies..."
-npm ci
+chown "${APP_USER}:${APP_USER}" "${APP_DIR}/.env"
+chmod 600 "${APP_DIR}/.env"
 
-echo "===> 7. Running Prisma migrations..."
-npx prisma generate
-npx prisma migrate deploy
+runuser -u "${APP_USER}" -- env HOME="${APP_DIR}" npm --prefix "${APP_DIR}" ci
+runuser -u "${APP_USER}" -- env HOME="${APP_DIR}" npm --prefix "${APP_DIR}" exec -- prisma generate --schema="${APP_DIR}/prisma/schema.prisma"
+runuser -u "${APP_USER}" -- env HOME="${APP_DIR}" npm --prefix "${APP_DIR}" exec -- prisma migrate deploy --schema="${APP_DIR}/prisma/schema.prisma"
+runuser -u "${APP_USER}" -- env HOME="${APP_DIR}" npm --prefix "${APP_DIR}" run build
+runuser -u "${APP_USER}" -- env HOME="${APP_DIR}" npm --prefix "${APP_DIR}" prune --omit=dev
 
-echo "===> 8. Building the project..."
-npm run build
-
-echo "===> 9. Creating systemd service..."
-cat > /etc/systemd/system/taxi-bot.service <<EOF
+install -m 0644 /dev/stdin /etc/systemd/system/taxi-bot.service <<EOF
 [Unit]
 Description=Taxi Telegram Bot
-After=network.target postgresql.service
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
-User=root
-WorkingDirectory=${APP_DIR}/${APP_SUBDIR}
-EnvironmentFile=${APP_DIR}/${APP_SUBDIR}/.env
-ExecStart=/usr/bin/node dist/main
+User=${APP_USER}
+Group=${APP_USER}
+WorkingDirectory=${APP_DIR}
+EnvironmentFile=${APP_DIR}/.env
+ExecStart=/usr/bin/node ${APP_DIR}/dist/main.js
 Restart=always
 RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable taxi-bot
+systemctl enable --now taxi-bot
 systemctl restart taxi-bot
-
-echo ""
-echo "============================================"
-echo "  Deployment complete!"
-echo "  Bot is running as systemd service."
-echo ""
-echo "  Useful commands:"
-echo "    sudo systemctl status taxi-bot"
-echo "    sudo systemctl restart taxi-bot"
-echo "    sudo journalctl -u taxi-bot -f"
-echo "============================================"
+systemctl --no-pager --full status taxi-bot

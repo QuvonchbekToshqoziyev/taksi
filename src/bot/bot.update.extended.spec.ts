@@ -2,21 +2,28 @@ import { BotUpdate } from './bot.update';
 
 describe('BotUpdate', () => {
   const createBotUpdate = (overrides = {}) => {
-    const redirectService = { getActiveGroups: jest.fn().mockResolvedValue([]) };
+    const redirectService = {
+      getActiveGroups: jest.fn().mockResolvedValue([]),
+    };
     const adminService = {
       isSuperAdmin: jest.fn().mockResolvedValue(false),
       isAdmin: jest.fn().mockResolvedValue(false),
     };
     const targetService = { isTargetGroup: jest.fn().mockResolvedValue(false) };
-    const keywordService = { getClientKeywords: () => [], getDriverKeywords: () => [] };
+    const keywordService = {
+      getClientKeywords: () => [],
+      getDriverKeywords: () => [],
+    };
     const locationService = { getLocations: jest.fn().mockResolvedValue([]) };
     const adminLogService = { log: jest.fn().mockResolvedValue(undefined) };
     const rideOrderService = { create: jest.fn().mockResolvedValue(undefined) };
     const driverService = { register: jest.fn().mockResolvedValue(undefined) };
-    const driverPostService = { create: jest.fn().mockResolvedValue(undefined) };
-    const publicChannelService = { sendToChannel: jest.fn().mockResolvedValue(undefined) };
-    const userClientService = { sendMessageToGroup: jest.fn().mockResolvedValue(undefined) };
-
+    const driverPostService = {
+      create: jest.fn().mockResolvedValue(undefined),
+    };
+    const publicChannelService = {
+      sendToChannel: jest.fn().mockResolvedValue(undefined),
+    };
     return new BotUpdate(
       redirectService as any,
       adminService as any,
@@ -28,7 +35,11 @@ describe('BotUpdate', () => {
       driverService as any,
       driverPostService as any,
       publicChannelService as any,
-      userClientService as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
     );
   };
 
@@ -135,9 +146,9 @@ describe('BotUpdate', () => {
       // These are already covered by CLIENT_WORDS_SINGLE, but this verifies
       // the combo fallback works for variations
       const samples = [
-        'taksi kerak hozir',  // 'taksi' + 'kerak' both present
-        'taxi kerak ertaga',  // 'taxi' + 'kerak' both present
-        'taksi bormi bugun',  // 'taksi' + 'bormi' both present
+        'taksi kerak hozir', // 'taksi' + 'kerak' both present
+        'taxi kerak ertaga', // 'taxi' + 'kerak' both present
+        'taksi bormi bugun', // 'taksi' + 'bormi' both present
       ];
 
       for (const text of samples) {
@@ -146,11 +157,7 @@ describe('BotUpdate', () => {
     });
 
     it('handles mixed case', () => {
-      const samples = [
-        'TAKSI KERAK',
-        'Taxi Kerak',
-        'Taksi kerak',
-      ];
+      const samples = ['TAKSI KERAK', 'Taxi Kerak', 'Taksi kerak'];
 
       for (const text of samples) {
         expect(isTaxiOrder(text)).toBe(true);
@@ -185,7 +192,8 @@ describe('BotUpdate', () => {
 
   describe('normalizeOrderText', () => {
     const bot = createBotUpdate();
-    const normalizeOrderText = (text: string) => (bot as any).normalizeOrderText(text);
+    const normalizeOrderText = (text: string) =>
+      (bot as any).normalizeOrderText(text);
 
     it('converts text to lowercase', () => {
       expect(normalizeOrderText('TAKSI KERAK')).toBe('taksi kerak');
@@ -219,7 +227,8 @@ describe('BotUpdate', () => {
   describe('rate limiting', () => {
     it('allows requests within limit', () => {
       const bot = createBotUpdate();
-      const isRateLimited = (userId: number) => (bot as any).isRateLimited(userId);
+      const isRateLimited = (userId: number) =>
+        (bot as any).isRateLimited(userId);
 
       // First 5 requests should not be rate limited
       for (let i = 0; i < 5; i++) {
@@ -229,7 +238,8 @@ describe('BotUpdate', () => {
 
     it('blocks requests after limit', () => {
       const bot = createBotUpdate();
-      const isRateLimited = (userId: number) => (bot as any).isRateLimited(userId);
+      const isRateLimited = (userId: number) =>
+        (bot as any).isRateLimited(userId);
 
       // Exhaust the limit
       for (let i = 0; i < 5; i++) {
@@ -242,7 +252,8 @@ describe('BotUpdate', () => {
 
     it('tracks rate limits per user', () => {
       const bot = createBotUpdate();
-      const isRateLimited = (userId: number) => (bot as any).isRateLimited(userId);
+      const isRateLimited = (userId: number) =>
+        (bot as any).isRateLimited(userId);
 
       // User 123 exhausts limit
       for (let i = 0; i < 5; i++) {
@@ -269,7 +280,9 @@ describe('BotUpdate', () => {
         reply: jest.fn(),
       } as any;
 
-      const scoutSpy = jest.spyOn(bot as any, 'handleTargetGroupMessage').mockResolvedValue(undefined);
+      const scoutSpy = jest
+        .spyOn(bot as any, 'handleTargetGroupMessage')
+        .mockResolvedValue(undefined);
 
       await bot.onText(ctx);
 

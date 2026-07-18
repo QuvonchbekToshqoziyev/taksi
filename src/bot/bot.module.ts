@@ -9,13 +9,13 @@ import { RideOrderModule } from '../ride-order/ride-order.module';
 import { DriverModule } from '../driver/driver.module';
 import { DriverPostModule } from '../driver-post/driver-post.module';
 import { PublicChannelModule } from '../public-channel/public-channel.module';
-import { UserClientModule } from '../user-client/user-client.module';
 import { CoreModule } from '../core/core.module';
 import { DriverBotService } from './services/driver-bot.service';
 import { ClientBotService } from './services/client-bot.service';
 import { AdminBotService } from './services/admin-bot.service';
-import { BotGateway } from './bot.gateway';
+import { BotGatewayModule } from './bot-gateway.module';
 import { BotRuntime } from './bot.runtime';
+import { BotUpdate } from './bot.update';
 import { AdminBotUpdate } from './admin/admin-bot.update';
 import { ClientBotUpdate } from './client/client-bot.update';
 import { DriverBotUpdate } from './driver/driver-bot.update';
@@ -32,12 +32,12 @@ import { DriverBotUpdate } from './driver/driver-bot.update';
     DriverModule,
     DriverPostModule,
     PublicChannelModule,
-    UserClientModule,
     CoreModule,
+    BotGatewayModule,
   ],
   providers: [
-    BotGateway,
     BotRuntime,
+    BotUpdate,
     AdminBotUpdate,
     ClientBotUpdate,
     DriverBotUpdate,
@@ -45,6 +45,6 @@ import { DriverBotUpdate } from './driver/driver-bot.update';
     ClientBotService,
     AdminBotService,
   ],
-  exports: [BotGateway, BotRuntime],
+  exports: [BotRuntime],
 })
 export class BotModule {}
