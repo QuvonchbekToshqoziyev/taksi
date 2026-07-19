@@ -5,6 +5,9 @@ APP_DIR="${APP_DIR:-/opt/taxi-bot}"
 APP_USER="${APP_USER:-taxi-bot}"
 REPO_URL="${REPO_URL:-https://github.com/QuvonchbekToshqoziyev/taksi.git}"
 REPO_REF="${REPO_REF:-main}"
+BUILD_NODE_OPTIONS="${BUILD_NODE_OPTIONS:---max-old-space-size=384}"
+SERVICE_MEMORY_HIGH="${SERVICE_MEMORY_HIGH:-192M}"
+SERVICE_MEMORY_MAX="${SERVICE_MEMORY_MAX:-256M}"
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "Run this script as root so it can manage the systemd service."
@@ -48,13 +51,13 @@ chmod 600 "${APP_DIR}/.env"
 run_as_app npm ci
 run_as_app npm exec -- prisma generate --schema="${APP_DIR}/prisma/schema.prisma"
 run_as_app npm exec -- prisma migrate deploy --schema="${APP_DIR}/prisma/schema.prisma"
-run_as_app npm run build
-run_as_app npm prune --omit=dev
+run_as_app env NODE_OPTIONS="${BUILD_NODE_OPTIONS}" npm run build
+run_as_app env NODE_OPTIONS="${BUILD_NODE_OPTIONS}" npm prune --omit=dev
 
 install -m 0644 /dev/stdin /etc/systemd/system/taxi-bot.service <<EOF
 [Unit]
 Description=Taxi Telegram Bot
-After=network-online.target
+After=network-online.target postgresql.service
 Wants=network-online.target
 
 [Service]
@@ -66,6 +69,8 @@ EnvironmentFile=${APP_DIR}/.env
 ExecStart=${NODE_BIN} ${APP_DIR}/dist/main.js
 Restart=always
 RestartSec=5
+MemoryHigh=${SERVICE_MEMORY_HIGH}
+MemoryMax=${SERVICE_MEMORY_MAX}
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
