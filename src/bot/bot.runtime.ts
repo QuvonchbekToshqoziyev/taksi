@@ -9,6 +9,27 @@ import type { SafeContext } from './update/bot-update.types';
 
 type BotRole = 'admin' | 'client' | 'driver';
 
+export async function waitForBotLaunch(
+  bot: Telegraf<Context>,
+  onPollingError: (error: unknown) => void,
+) {
+  await new Promise<void>((resolve, reject) => {
+    let connected = false;
+    void bot
+      .launch({}, () => {
+        connected = true;
+        resolve();
+      })
+      .catch((error: unknown) => {
+        if (connected) {
+          onPollingError(error);
+          return;
+        }
+        reject(error);
+      });
+  });
+}
+
 @Injectable()
 export class BotRuntime {
   private readonly logger = new Logger(BotRuntime.name);
@@ -131,7 +152,9 @@ export class BotRuntime {
     bot.on('callback_query', (ctx) => update.onCallback(ctx));
 
     try {
-      await bot.launch();
+      await waitForBotLaunch(bot, (error) => {
+        this.logger.error(`${role} bot polling stopped: ${String(error)}`);
+      });
       this.bots.set(role, bot);
       this.botGateway.setBot(role, bot);
       this.logger.log(`${role} bot started`);
