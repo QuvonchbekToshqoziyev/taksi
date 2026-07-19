@@ -1,9 +1,17 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  assertStagingChatAllowed,
+  filterStagingChats,
+} from '../core/telegram/telegram-scope';
 
 @Injectable()
 export class PublicChannelService {
-  private activeChannelsCache: Array<{ chatId: string; title: string; isActive: boolean }> | null = null;
+  private activeChannelsCache: Array<{
+    chatId: string;
+    title: string;
+    isActive: boolean;
+  }> | null = null;
   private activeChannelsCacheAt = 0;
   private readonly CACHE_TTL_MS = 5000;
 
@@ -16,7 +24,10 @@ export class PublicChannelService {
 
   private async getCachedActiveChannels() {
     const now = Date.now();
-    if (this.activeChannelsCache && now - this.activeChannelsCacheAt < this.CACHE_TTL_MS) {
+    if (
+      this.activeChannelsCache &&
+      now - this.activeChannelsCacheAt < this.CACHE_TTL_MS
+    ) {
       return this.activeChannelsCache;
     }
 
@@ -24,12 +35,13 @@ export class PublicChannelService {
       where: { isActive: true },
       select: { chatId: true, title: true, isActive: true },
     });
-    this.activeChannelsCache = channels;
+    this.activeChannelsCache = filterStagingChats(channels);
     this.activeChannelsCacheAt = now;
-    return channels;
+    return this.activeChannelsCache;
   }
 
   async addChannel(data: { chatId: string; title: string }) {
+    assertStagingChatAllowed(data.chatId);
     const result = await this.prisma.publicChannel.upsert({
       where: { chatId: data.chatId },
       update: { title: data.title, isActive: true },
@@ -57,7 +69,9 @@ export class PublicChannelService {
   }
 
   async deleteByChatId(chatId: string) {
-    const result = await this.prisma.publicChannel.delete({ where: { chatId } });
+    const result = await this.prisma.publicChannel.delete({
+      where: { chatId },
+    });
     this.invalidateCache();
     return result;
   }

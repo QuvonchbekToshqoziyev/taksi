@@ -37,7 +37,7 @@ export class ClientBotService {
    */
   async startRequestFlow(ctx: SafeContext) {
     this.requestState.set(ctx.from.id, { step: 'from' });
-    
+
     await ctx.reply(
       '🚕 <b>Taksi buyurtmasi</b>\n\n' +
       '📍 Qayerdan ketasiz?',
@@ -213,7 +213,7 @@ export class ClientBotService {
    */
   async cancelRequest(ctx: SafeContext) {
     this.requestState.delete(ctx.from.id);
-    
+
     await ctx.reply('❌ Buyurtma bekor qilindi.', {
       reply_markup: {
         inline_keyboard: [

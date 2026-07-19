@@ -1,4 +1,4 @@
-function normalizeOrderText(text: string): string {
+export function normalizeOrderText(text: string): string {
   return (text || '')
     .toLowerCase()
     .replace(/[ʻʼ'`’‘]/g, '')

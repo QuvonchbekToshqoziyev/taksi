@@ -1,7 +1,23 @@
 import { BotUpdate } from './bot.update';
 
 describe('BotUpdate isTaxiOrder', () => {
-  const bot = new BotUpdate({} as any, {} as any, {} as any, { getClientKeywords: () => [], getDriverKeywords: () => [] } as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any);
+  const bot = new BotUpdate(
+    {} as any,
+    {} as any,
+    {} as any,
+    { getClientKeywords: () => [], getDriverKeywords: () => [] } as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    {} as any,
+  );
   const isTaxiOrder = (text: string) => (bot as any).isTaxiOrder(text);
 
   it('accepts extended client phrases from real chats', () => {
@@ -52,14 +68,35 @@ describe('BotUpdate isTaxiOrder', () => {
   });
 
   it('does not forward non-orders in private chat', async () => {
-    const redirectService = { getActiveGroups: jest.fn().mockResolvedValue([]) };
+    const redirectService = {
+      getActiveGroups: jest.fn().mockResolvedValue([]),
+    };
     const adminService = {
       isSuperAdmin: jest.fn().mockResolvedValue(false),
       isAdmin: jest.fn().mockResolvedValue(false),
     };
     const targetService = { isTargetGroup: jest.fn().mockResolvedValue(false) };
-    const keywordService = { getClientKeywords: () => [], getDriverKeywords: () => [] };
-    const localBot = new BotUpdate(redirectService as any, adminService as any, targetService as any, keywordService as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any);
+    const keywordService = {
+      getClientKeywords: () => [],
+      getDriverKeywords: () => [],
+    };
+    const localBot = new BotUpdate(
+      redirectService as any,
+      adminService as any,
+      targetService as any,
+      keywordService as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
 
     const ctx = {
       chat: { id: 1001, type: 'private' as const },
@@ -69,7 +106,9 @@ describe('BotUpdate isTaxiOrder', () => {
       reply: jest.fn(),
     } as any;
 
-    const scoutSpy = jest.spyOn(localBot as any, 'handleTargetGroupMessage').mockResolvedValue(undefined);
+    const scoutSpy = jest
+      .spyOn(localBot as any, 'handleTargetGroupMessage')
+      .mockResolvedValue(undefined);
 
     await localBot.onText(ctx);
 

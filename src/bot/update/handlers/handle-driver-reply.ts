@@ -3,7 +3,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import type { SafeContext } from '../bot-update.types';
-import { ClientRequestState } from '../../../core/state/state.types';
 
 export async function handleDriverReply(
   self: any,
@@ -39,45 +38,32 @@ export async function handleDriverReply(
   if (!match) return;
 
   const orderId = parseInt(match[1], 10);
-  const order = await self.rideOrderService.getById(orderId);
-  if (!order) return;
-
-  const driverFirstName = ctx.from.first_name || '';
-  const driverLastName = ctx.from.last_name || '';
-  const driverName =
-    `${driverFirstName} ${driverLastName}`.trim() || 'Haydovchi';
   const driverUsername = ctx.from.username;
 
-  let driverPhone = '';
-  try {
-    const chat = await ctx.telegram.getChat(ctx.from.id);
-    if ('bio' in chat && (chat as any).phone_number) {
-      driverPhone = (chat as any).phone_number;
-    }
-  } catch {
-    // ignore
-  }
-
   if (isOlindi) {
-    if (order.status !== ClientRequestState.NEW) {
+    const result = await self.rideOrderService.acceptByDriver(
+      orderId,
+      ctx.from.id,
+    );
+    if (!result.ok) {
+      const message =
+        result.reason === 'NOT_REGISTERED'
+          ? "⛔ Avval botda haydovchi sifatida ro'yxatdan o'ting."
+          : result.reason === 'NOT_APPROVED'
+            ? '⛔ Profilingiz admin tomonidan tasdiqlanmagan.'
+            : '⚠️ Bu buyurtma allaqachon boshqa haydovchi tomonidan qabul qilingan.';
       await self.tgSafe(() =>
-        ctx.reply(
-          '⚠️ Bu buyurtma allaqachon qabul qilingan yoki tugallangan.',
-          {
-            reply_parameters: { message_id: ctx.message.message_id },
-          },
-        ),
+        ctx.reply(message, {
+          reply_parameters: { message_id: ctx.message.message_id },
+        }),
       );
       return;
     }
 
-    await self.rideOrderService.updateStatus(
-      orderId,
-      ClientRequestState.MATCHED,
-    );
+    const { order, driver } = result;
     await self.tgSafe(() =>
       ctx.reply(
-        `✅ Buyurtma #${orderId} qabul qilindi!\n👤 Haydovchi: ${self.escapeHtml(driverName)}`,
+        `✅ Buyurtma #${orderId} qabul qilindi!\n👤 Haydovchi: ${self.escapeHtml(driver.fullName)}`,
         {
           parse_mode: 'HTML',
           reply_parameters: { message_id: reply.message_id },
@@ -88,14 +74,12 @@ export async function handleDriverReply(
     let driverInfo =
       `✅ <b>Buyurtma #${orderId} qabul qilindi!</b>\n\n` +
       `🚗 <b>Haydovchi ma'lumotlari:</b>\n` +
-      `👤 <b>Ism:</b> <a href="tg://user?id=${ctx.from.id}">${self.escapeHtml(driverName)}</a>\n`;
+      `👤 <b>Ism:</b> <a href="tg://user?id=${ctx.from.id}">${self.escapeHtml(driver.fullName)}</a>\n`;
 
     if (driverUsername) {
       driverInfo += `📱 <b>Telegram:</b> @${self.escapeHtml(driverUsername)}\n`;
     }
-    if (driverPhone) {
-      driverInfo += `📞 <b>Telefon:</b> ${self.escapeHtml(driverPhone)}\n`;
-    }
+    driverInfo += `📞 <b>Telefon:</b> ${self.escapeHtml(driver.phone)}\n`;
 
     driverInfo +=
       `\n📍 ${self.escapeHtml(order.fromName)} → ${self.escapeHtml(order.toName)}\n` +
@@ -116,22 +100,26 @@ export async function handleDriverReply(
   }
 
   if (isOtmen) {
-    if (!self.rideOrderService.isOpenStatus(order.status)) {
+    const result = await self.rideOrderService.releaseByDriver(
+      orderId,
+      ctx.from.id,
+    );
+    if (!result.ok) {
       await self.tgSafe(() =>
-        ctx.reply("⚠️ Bu buyurtmani bekor qilib bo'lmaydi.", {
-          reply_parameters: { message_id: ctx.message.message_id },
-        }),
+        ctx.reply(
+          "⛔ Faqat buyurtmani olgan tasdiqlangan haydovchi uni bo'shata oladi.",
+          {
+            reply_parameters: { message_id: ctx.message.message_id },
+          },
+        ),
       );
       return;
     }
 
-    await self.rideOrderService.updateStatus(
-      orderId,
-      ClientRequestState.CANCELLED,
-    );
+    const { order, driver } = result;
     await self.tgSafe(() =>
       ctx.reply(
-        `❌ Buyurtma #${orderId} bekor qilindi.\n👤 ${self.escapeHtml(driverName)}`,
+        `↩️ Buyurtma #${orderId} qayta ochildi.\n👤 ${self.escapeHtml(driver.fullName)}`,
         {
           parse_mode: 'HTML',
           reply_parameters: { message_id: reply.message_id },
@@ -142,14 +130,14 @@ export async function handleDriverReply(
     try {
       await ctx.telegram.sendMessage(
         Number(order.userTgId),
-        `❌ <b>Buyurtma #${orderId} bekor qilindi.</b>\n\n` +
+        `↩️ <b>Buyurtma #${orderId} uchun yana haydovchi qidirilmoqda.</b>\n\n` +
           `📍 ${self.escapeHtml(order.fromName)} → ${self.escapeHtml(order.toName)}\n` +
-          `Yangi buyurtma berish uchun "🚕 Taksi chaqirish" tugmasini bosing.`,
+          `Oldingi haydovchi buyurtmani bo'shatdi.`,
         { parse_mode: 'HTML' },
       );
     } catch (err) {
       self.logEvent('notify_user_error', {
-        scope: 'driver_cancel',
+        scope: 'driver_release',
         orderId,
         error: self.getErrDesc(err),
       });

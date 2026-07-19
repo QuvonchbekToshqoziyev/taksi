@@ -17,7 +17,6 @@ import { RideOrderService } from '../../ride-order/ride-order.service';
 import { DriverService } from '../../driver/driver.service';
 import { DriverPostService } from '../../driver-post/driver-post.service';
 import { PublicChannelService } from '../../public-channel/public-channel.service';
-import { UserClientService } from '../../user-client/user-client.service';
 import { DriverBotService } from '../services/driver-bot.service';
 import { ClientBotService } from '../services/client-bot.service';
 import { AdminBotService } from '../services/admin-bot.service';
@@ -37,6 +36,7 @@ import {
   DRIVER_WORDS,
   extractUzPhone,
   isTaxiOrderText,
+  normalizeOrderText,
 } from './order-filter.util';
 import {
   escapeHtml,
@@ -64,7 +64,6 @@ export class BotUpdateBase {
     private readonly driverService: DriverService,
     private readonly driverPostService: DriverPostService,
     private readonly publicChannelService: PublicChannelService,
-    private readonly userClientService: UserClientService,
     private readonly driverBotService: DriverBotService,
     private readonly clientBotService: ClientBotService,
     private readonly adminBotService: AdminBotService,
@@ -162,6 +161,10 @@ export class BotUpdateBase {
     return extractUzPhone(text);
   }
 
+  private normalizeOrderText(text: string): string {
+    return normalizeOrderText(text);
+  }
+
   private normalizeChatRef(raw: string): string {
     return normalizeChatRef(raw);
   }
@@ -215,11 +218,6 @@ export class BotUpdateBase {
     );
   }
 
-  private isProtectedError(e: any): boolean {
-    const d = this.getErrDesc(e).toLowerCase();
-    return d.includes('protected') || d.includes('content is protected');
-  }
-
   private async safeSendMessage(
     ctx: any,
     chatId: number | string,
@@ -242,21 +240,11 @@ export class BotUpdateBase {
     }
   }
 
-  private async safeForward(
-    ctx: any,
-    targetId: number | string,
-    sourceId: number | string,
-    messageId: number,
-  ) {
-    return this.tgSafe(() =>
-      ctx.telegram.forwardMessage(targetId, sourceId, messageId),
-    );
-  }
-
   // ================= BUILD SCOUT MESSAGE =================
   private async buildScoutMessage(
     ctx: SafeContext,
     originalText: string,
+    orderId: number,
     sourceChatTitle?: string,
   ): Promise<string> {
     const name = this.escapeHtml(ctx.from?.first_name || '');
@@ -306,11 +294,13 @@ export class BotUpdateBase {
       ? `\n📍 ${this.escapeHtml(sourceChatTitle)}`
       : '';
 
-    return `🚕 <b>Yangi zakaz topildi!</b>${sourceLine}
+    return `🚕 <b>Yangi zakaz #${orderId}</b>${sourceLine}
 
 ${text}
 
-${contactLine}${phoneLine}`;
+${contactLine}${phoneLine}
+
+Qabul qilish uchun shu xabarga <b>olindi</b> deb javob bering.`;
   }
 
   // ================= MAIN MENU =================
@@ -326,10 +316,11 @@ ${contactLine}${phoneLine}`;
         ctx.reply(
           '🔧 Admin panel:',
           this.inlineTextKeyboard([
-            ["➕ Redirect qo'shish", '📋 Redirectlar'],
-            ["📥 Client guruh qo'shish", '📋 Client guruhlar'],
+            ["➕ Priority guruh qo'shish", '📋 Priority guruhlar'],
+            ['📥 Mijoz qidirish guruhi', '📋 Qidiruv guruhlari'],
+            ['🚗 Haydovchilar'],
             ['📗 Kalit soʻzlar', '📍 Joylashuvlar'],
-            ['📢 Ommaviy kanal', '📜 Admin loglar'],
+            ["📢 E'lon kanali/guruhi", '📜 Admin loglar'],
           ]),
         ),
       );
@@ -458,14 +449,7 @@ ${contactLine}${phoneLine}`;
       const chatId = String(ctx.chat.id);
       const isTarget = await this.targetService.isTargetGroup(chatId);
       if (isTarget) {
-        if (!this.userClientService.isConnected()) {
-          await this.handleTargetGroupMessage(ctx, text);
-        } else {
-          this.logEvent('target_message_skipped_bot_scout', {
-            reason: 'user_client_connected',
-            chatId,
-          });
-        }
+        await this.handleTargetGroupMessage(ctx, text);
         return;
       }
 
@@ -571,15 +555,20 @@ ${contactLine}${phoneLine}`;
         title = forwardedChat.title || chatId;
       } else {
         const ref = this.normalizeChatRef(text);
-        const chat = await this.tgSafe(() => ctx.telegram.getChat(ref));
-        if (!this.isRedirectTargetType((chat as any)?.type)) {
-          await this.tgSafe(() =>
-            ctx.reply("❌ Faqat guruh/superguruh/kanal target bo'ladi."),
-          );
-          return;
+        if (/^-\d+$/.test(ref)) {
+          chatId = ref;
+          title = `Qidiruv guruhi ${ref}`;
+        } else {
+          const chat = await this.tgSafe(() => ctx.telegram.getChat(ref));
+          if (!this.isRedirectTargetType((chat as any)?.type)) {
+            await this.tgSafe(() =>
+              ctx.reply("❌ Faqat guruh/superguruh/kanal target bo'ladi."),
+            );
+            return;
+          }
+          chatId = String((chat as any).id);
+          title = (chat as any).title || ref;
         }
-        chatId = String((chat as any).id);
-        title = (chat as any).title || ref;
       }
 
       await this.targetService.addGroup({ chatId, title });
@@ -591,7 +580,9 @@ ${contactLine}${phoneLine}`;
         details: title,
       });
       this.waitingTarget.delete(ctx.from.id);
-      await this.tgSafe(() => ctx.reply(`✅ Target qo'shildi: ${title}`));
+      await this.tgSafe(() =>
+        ctx.reply(`✅ Qidiruv guruhi qo'shildi: ${title}`),
+      );
       await this.sendMainMenu(ctx, true);
     } catch (err: any) {
       const desc = this.getErrDesc(err).toLowerCase();
@@ -878,6 +869,25 @@ ${contactLine}${phoneLine}`;
       return;
     }
 
+    if (!driver.isApproved) {
+      await this.tgSafe(() =>
+        ctx.reply(
+          `⏳ <b>Profil tasdiqlanishi kutilmoqda</b>\n\n` +
+            `👤 ${this.escapeHtml(driver.fullName)}\n` +
+            `📞 ${this.escapeHtml(driver.phone)}\n` +
+            `🚙 ${this.escapeHtml(driver.carNumber)}`,
+          {
+            parse_mode: 'HTML',
+            ...this.inlineTextKeyboard([
+              ["✏️ Ma'lumotlarni o'zgartirish"],
+              ['🔙 Orqaga'],
+            ]),
+          },
+        ),
+      );
+      return;
+    }
+
     const statusEmoji = this.driverService.statusEmoji(driver.status);
     const statusLabel = this.driverService.statusLabel(driver.status);
 
@@ -991,7 +1001,7 @@ ${contactLine}${phoneLine}`;
       });
       this.driverRegState.delete(ctx.from.id);
       await this.tgSafe(() =>
-        ctx.reply("✅ Ro'yxatdan muvaffaqiyatli o'tdingiz!"),
+        ctx.reply("✅ Ro'yxatdan o'tdingiz. Admin tasdig'ini kuting."),
       );
       await this.sendDriverMenu(ctx);
     } catch (err) {
@@ -1059,22 +1069,43 @@ ${contactLine}${phoneLine}`;
       `📞 ${this.escapeHtml(driver.phone)}\n` +
       `🚙 ${this.escapeHtml(driver.carNumber)}`;
 
-    const channels = await this.publicChannelService.getActiveChannels();
+    const dbChannels = await this.publicChannelService.getActiveChannels();
+    const channels = [...dbChannels];
+
     let success = 0;
 
     for (const ch of channels) {
       try {
-        const sent = await this.safeSendMessage(ctx, ch.chatId, msg, {
+        const sent: any = await this.safeSendMessage(ctx, ch.chatId, msg, {
           parse_mode: 'HTML',
         });
         if (sent && post.id) {
           try {
-            await this.driverPostService.closePost(post.id);
-            // Reopen with channel message id
-            // For simplicity we just store it
-          } catch {}
+            await this.driverPostService.recordMessage(
+              post.id,
+              ch.chatId,
+              sent.message_id,
+            );
+            success++;
+          } catch (err) {
+            this.logEvent('driver_post_delivery_save_error', {
+              postId: post.id,
+              channelTitle: ch.title,
+              error: this.getErrDesc(err),
+            });
+            try {
+              await this.tgSafe(() =>
+                ctx.telegram.deleteMessage(ch.chatId, sent.message_id),
+              );
+            } catch (deleteError) {
+              this.logEvent('driver_post_untracked_message_delete_error', {
+                postId: post.id,
+                channelTitle: ch.title,
+                error: this.getErrDesc(deleteError),
+              });
+            }
+          }
         }
-        success++;
       } catch (err: any) {
         this.logEvent('driver_post_send_error', {
           channelTitle: ch.title,
@@ -1083,7 +1114,39 @@ ${contactLine}${phoneLine}`;
       }
       await this.tgDelay();
     }
+    if (success === 0 && post.id) {
+      await this.driverPostService.closePost(post.id);
+    }
     return success;
+  }
+
+  private async closeDriverPost(ctx: any, post: any) {
+    await this.driverPostService.closePost(post.id);
+    for (const message of post.messages || []) {
+      try {
+        await this.tgSafe(() =>
+          ctx.telegram.deleteMessage(message.chatId, message.messageId),
+        );
+      } catch (deleteError) {
+        try {
+          await this.tgSafe(() =>
+            ctx.telegram.editMessageText(
+              message.chatId,
+              message.messageId,
+              undefined,
+              "❌ E'lon yopildi.",
+            ),
+          );
+        } catch (editError) {
+          this.logEvent('driver_post_message_close_error', {
+            postId: post.id,
+            chatId: message.chatId,
+            deleteError: this.getErrDesc(deleteError),
+            editError: this.getErrDesc(editError),
+          });
+        }
+      }
+    }
   }
 
   // ================= SHOW DRIVER POSTS =================

@@ -4,24 +4,73 @@ import { BotGateway } from './bot.gateway';
 import { AdminBotUpdate } from './admin/admin-bot.update';
 import { ClientBotUpdate } from './client/client-bot.update';
 import { DriverBotUpdate } from './driver/driver-bot.update';
+import { BotUpdate } from './bot.update';
 import type { SafeContext } from './update/bot-update.types';
+import {
+  isBotUpdateAllowed,
+  readTelegramScope,
+} from '../core/telegram/telegram-scope';
 
 type BotRole = 'admin' | 'client' | 'driver';
+
+export async function waitForBotLaunch(
+  bot: Telegraf<Context>,
+  onPollingError: (error: unknown) => void,
+) {
+  await new Promise<void>((resolve, reject) => {
+    let connected = false;
+    void bot
+      .launch({}, () => {
+        connected = true;
+        resolve();
+      })
+      .catch((error: unknown) => {
+        if (connected) {
+          onPollingError(error);
+          return;
+        }
+        reject(error);
+      });
+  });
+}
 
 @Injectable()
 export class BotRuntime {
   private readonly logger = new Logger(BotRuntime.name);
   private bots = new Map<BotRole, Telegraf<Context>>();
+  private readonly telegramScope = readTelegramScope();
 
   constructor(
     private readonly botGateway: BotGateway,
     private readonly adminBotUpdate: AdminBotUpdate,
     private readonly clientBotUpdate: ClientBotUpdate,
     private readonly driverBotUpdate: DriverBotUpdate,
+    private readonly combinedBotUpdate: BotUpdate,
   ) {}
 
   async start() {
+    if (this.telegramScope.staging) {
+      this.logger.log(
+        `Staging Telegram scope enabled: ${this.telegramScope.allowedUserIds.size} users, ${this.telegramScope.allowedChatIds.size} chats`,
+      );
+    }
+
     const legacyToken = process.env.BOT_TOKEN;
+    const dedicatedTokensConfigured = Boolean(
+      process.env.ADMIN_BOT_TOKEN ||
+      process.env.CLIENT_BOT_TOKEN ||
+      process.env.DRIVER_BOT_TOKEN,
+    );
+
+    if (legacyToken && !dedicatedTokensConfigured) {
+      await this.startBot('admin', legacyToken, this.combinedBotUpdate);
+      if (!this.bots.size) {
+        throw new Error('The BOT_TOKEN bot could not be started.');
+      }
+      this.logger.log('Telegraf bot runtime started in combined mode');
+      return;
+    }
+
     const adminToken = process.env.ADMIN_BOT_TOKEN || legacyToken;
     const clientToken = process.env.CLIENT_BOT_TOKEN;
     const driverToken = process.env.DRIVER_BOT_TOKEN;
@@ -70,7 +119,9 @@ export class BotRuntime {
     await Promise.allSettled(jobs);
 
     if (!this.bots.size) {
-      throw new Error('No bot could be started. Check bot tokens and network access.');
+      throw new Error(
+        'No bot could be started. Check bot tokens and network access.',
+      );
     }
 
     this.logger.log(
@@ -103,6 +154,16 @@ export class BotRuntime {
       this.logger.error(`${role} bot update handler error: ${String(err)}`);
     });
 
+    bot.use((ctx, next) => {
+      if (!isBotUpdateAllowed(ctx, this.telegramScope)) {
+        this.logger.warn(
+          `Ignored out-of-scope staging update: chat=${String(ctx.chat?.id || '')} user=${String(ctx.from?.id || '')}`,
+        );
+        return;
+      }
+      return next();
+    });
+
     bot.start((ctx) => update.start(ctx as SafeContext));
     bot.command('admin', (ctx) => update.admin(ctx as SafeContext));
     bot.command('getid', (ctx) => update.getId(ctx));
@@ -112,7 +173,9 @@ export class BotRuntime {
     bot.on('callback_query', (ctx) => update.onCallback(ctx));
 
     try {
-      await bot.launch();
+      await waitForBotLaunch(bot, (error) => {
+        this.logger.error(`${role} bot polling stopped: ${String(error)}`);
+      });
       this.bots.set(role, bot);
       this.botGateway.setBot(role, bot);
       this.logger.log(`${role} bot started`);
@@ -128,5 +191,13 @@ export class BotRuntime {
     }
     this.bots.clear();
     this.logger.log('Telegraf bot runtime stopped');
+  }
+
+  getStatus(): Record<BotRole, boolean> {
+    return {
+      admin: this.bots.has('admin'),
+      client: this.bots.has('client'),
+      driver: this.bots.has('driver'),
+    };
   }
 }

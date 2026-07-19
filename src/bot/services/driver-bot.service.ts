@@ -25,7 +25,7 @@ export class DriverBotService {
    */
   async showMainMenu(ctx: SafeContext) {
     const driver = await this.driverService.getByTgId(ctx.from.id);
-    
+
     if (!driver) {
       await ctx.reply(
         '🚗 Haydovchi sifatida ro\'yxatdan o\'ting:\n\n' +
@@ -36,14 +36,14 @@ export class DriverBotService {
 
     const statusEmoji = this.driverService.statusEmoji(driver.status);
     const statusLabel = this.driverService.statusLabel(driver.status);
-    
+
     const message = `🚗 <b>Haydovchi Paneli</b>\n\n` +
       `👤 ${driver.fullName}\n` +
       `🚕 ${driver.carNumber}\n` +
       `📊 Holat: ${statusEmoji} ${statusLabel}\n` +
       `💺 O'rinlar: ${driver.seatsAvailable}\n\n` +
-      (driver.fromLocation && driver.toLocation 
-        ? `📍 ${driver.fromLocation} → ${driver.toLocation}\n` 
+      (driver.fromLocation && driver.toLocation
+        ? `📍 ${driver.fromLocation} → ${driver.toLocation}\n`
         : '📍 Yo\'nalish belgilanmagan\n');
 
     await ctx.reply(message, {
@@ -198,7 +198,7 @@ export class DriverBotService {
     }
 
     const success = await this.driverService.updateSeats(driver.tgId as any, seats);
-    
+
     if (success) {
       await ctx.reply(`✅ O'rinlar soni ${seats} ga o'zgartirildi.`, {
         reply_markup: {

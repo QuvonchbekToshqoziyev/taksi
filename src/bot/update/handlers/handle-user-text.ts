@@ -115,9 +115,15 @@ export async function handleUserText(
       await self.tgSafe(() => ctx.reply("Avval ro'yxatdan o'ting."));
       return true;
     }
-    if (driver.status === 'not_working') {
+    if (!driver.isApproved) {
       await self.tgSafe(() =>
-        ctx.reply('Statusingiz "Ishlamayapti" — avval statusni o\'zgartiring.'),
+        ctx.reply('Profilingiz hali admin tomonidan tasdiqlanmagan.'),
+      );
+      return true;
+    }
+    if (driver.status === DriverState.OFFLINE) {
+      await self.tgSafe(() =>
+        ctx.reply('Statusingiz "O\'chirilgan" — avval ishni boshlang.'),
       );
       return true;
     }
@@ -152,6 +158,12 @@ export async function handleUserText(
       await self.tgSafe(() => ctx.reply("Avval ro'yxatdan o'ting."));
       return true;
     }
+    if (!driver.isApproved) {
+      await self.tgSafe(() =>
+        ctx.reply('Profilingiz hali admin tomonidan tasdiqlanmagan.'),
+      );
+      return true;
+    }
     const statusMap: Record<string, DriverState> = {
       "🅿️ Bo'sh": DriverState.AVAILABLE,
       "🚗 Yo'lda": DriverState.EN_ROUTE,
@@ -159,10 +171,15 @@ export async function handleUserText(
     };
     const newStatus = statusMap[text];
     if (newStatus) {
-      await self.driverService.updateStatus(ctx.from.id, newStatus);
+      const changed = await self.driverService.updateState(
+        ctx.from.id,
+        newStatus,
+      );
       await self.tgSafe(() =>
         ctx.reply(
-          `✅ Statusingiz o'zgardi: ${self.driverService.statusLabel(newStatus)}`,
+          changed
+            ? `✅ Statusingiz o'zgardi: ${self.driverService.statusLabel(newStatus)}`
+            : "⚠️ Bu statusga hozir o'tib bo'lmaydi.",
         ),
       );
       await self.sendDriverMenu(ctx);

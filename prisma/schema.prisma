@@ -44,103 +44,119 @@ model TargetGroup {
 }
 
 model Keyword {
-  id      Int     @id @default(autoincrement())
-  phrase  String  @unique
-  type    String  // 'client' | 'driver'
+  id      Int      @id @default(autoincrement())
+  phrase  String   @unique
+  type    String // 'client' | 'driver'
   addedAt DateTime @default(now())
 }
 
 model Location {
-  id        Int        @id @default(autoincrement())
-  name      String
-  parentId  Int?
-  parent    Location?  @relation("LocationTree", fields: [parentId], references: [id])
-  children  Location[] @relation("LocationTree")
-  isActive  Boolean    @default(true)
-  addedAt   DateTime   @default(now())
+  id       Int        @id @default(autoincrement())
+  name     String
+  parentId Int?
+  parent   Location?  @relation("LocationTree", fields: [parentId], references: [id])
+  children Location[] @relation("LocationTree")
+  isActive Boolean    @default(true)
+  addedAt  DateTime   @default(now())
 
   @@unique([name, parentId])
 }
 
 model AdminLog {
-  id            Int      @id @default(autoincrement())
+  id            Int       @id @default(autoincrement())
   adminTgId     BigInt
-  action        String   // 'add' | 'remove' | 'update'
-  targetType    String   // 'location' | 'redirect' | 'target' | 'keyword'
+  action        String // 'add' | 'remove' | 'update'
+  targetType    String // 'location' | 'redirect' | 'target' | 'keyword'
   targetId      String
   details       String?
   previousValue String?
-  createdAt     DateTime @default(now())
+  createdAt     DateTime  @default(now())
   restoredAt    DateTime?
 }
 
 model RideOrder {
-  id         Int      @id @default(autoincrement())
-  userTgId   BigInt
-  fromName   String
-  toName     String
-  passengers Int
-  phone      String
-  status     String   @default("NEW") // NEW, PARTIAL_MATCH, MATCHED, EXPIRED, CANCELLED
-  features   String[] @default([])
-  time       String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  rides      Ride[]
+  id              Int      @id @default(autoincrement())
+  userTgId        BigInt
+  fromName        String
+  toName          String
+  passengers      Int
+  phone           String
+  status          String   @default("NEW") // NEW, PARTIAL_MATCH, MATCHED, EXPIRED, CANCELLED
+  features        String[] @default([])
+  time            String?
+  sourceChatId    String?
+  sourceMessageId Int?
+  sourceText      String?
+  sourceTitle     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  rides           Ride[]
+
+  @@unique([sourceChatId, sourceMessageId])
 }
 
 model Ride {
-  id              Int         @id @default(autoincrement())
+  id              Int       @id @default(autoincrement())
   driverId        Int
-  driver          Driver      @relation(fields: [driverId], references: [id])
-  clientRequestId Int
-  clientRequest   RideOrder   @relation(fields: [clientRequestId], references: [id])
-  state           String      @default("CREATED") // CREATED, IN_PROGRESS, COMPLETED, CANCELLED
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
-
-  @@unique([driverId, clientRequestId])
+  driver          Driver    @relation(fields: [driverId], references: [id])
+  clientRequestId Int       @unique
+  clientRequest   RideOrder @relation(fields: [clientRequestId], references: [id])
+  state           String    @default("CREATED") // CREATED, IN_PROGRESS, COMPLETED, CANCELLED
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 }
 
 model Driver {
-  id          Int      @id @default(autoincrement())
-  tgId        BigInt   @unique
-  fullName    String
-  phone       String
-  carNumber   String
-  carPhotoId  String?  // Telegram file_id for car photo
-  status      String   @default("OFFLINE") // OFFLINE, AVAILABLE, FULL, EN_ROUTE
-  seatsAvailable Int   @default(4)
-  features    String[] @default([])
-  fromLocation String?
-  toLocation   String?
-  lastActive  DateTime @default(now())
-  isApproved  Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  posts       DriverPost[]
-  rides       Ride[]
+  id             Int          @id @default(autoincrement())
+  tgId           BigInt       @unique
+  fullName       String
+  phone          String
+  carNumber      String
+  carPhotoId     String? // Telegram file_id for car photo
+  status         String       @default("OFFLINE") // OFFLINE, AVAILABLE, FULL, EN_ROUTE
+  seatsAvailable Int          @default(4)
+  features       String[]     @default([])
+  fromLocation   String?
+  toLocation     String?
+  lastActive     DateTime     @default(now())
+  isApproved     Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  posts          DriverPost[]
+  rides          Ride[]
 }
 
 model DriverPost {
-  id          Int      @id @default(autoincrement())
-  driverId    Int
-  driver      Driver   @relation(fields: [driverId], references: [id])
-  fromName    String
-  toName      String
-  seats       Int      // available seats
-  price       String?  // optional price info
-  note        String?  // optional note
-  channelMsgId Int?    // message_id in public channel
-  status      String   @default("active") // 'active' | 'closed'
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id           Int                 @id @default(autoincrement())
+  driverId     Int
+  driver       Driver              @relation(fields: [driverId], references: [id])
+  fromName     String
+  toName       String
+  seats        Int // available seats
+  price        String? // optional price info
+  note         String? // optional note
+  channelMsgId Int? // message_id in public channel
+  status       String              @default("active") // 'active' | 'closed'
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  messages     DriverPostMessage[]
+}
+
+model DriverPostMessage {
+  id        Int        @id @default(autoincrement())
+  postId    Int
+  post      DriverPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  chatId    String
+  messageId Int
+  createdAt DateTime   @default(now())
+
+  @@unique([postId, chatId, messageId])
 }
 
 model PublicChannel {
-  id       Int     @id @default(autoincrement())
-  chatId   String  @unique
+  id       Int      @id @default(autoincrement())
+  chatId   String   @unique
   title    String
-  isActive Boolean @default(true)
+  isActive Boolean  @default(true)
   addedAt  DateTime @default(now())
 }

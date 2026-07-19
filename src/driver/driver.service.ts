@@ -48,6 +48,24 @@ export class DriverService {
     return this.prisma.driver.findUnique({ where: { id } });
   }
 
+  async getPendingApproval() {
+    return this.prisma.driver.findMany({
+      where: { isApproved: false },
+      orderBy: { createdAt: 'asc' },
+      take: 50,
+    });
+  }
+
+  async setApproval(id: number, isApproved: boolean) {
+    return this.prisma.driver.update({
+      where: { id },
+      data: {
+        isApproved,
+        status: DriverState.OFFLINE,
+      },
+    });
+  }
+
   async updateState(tgId: number, newState: DriverState): Promise<boolean> {
     const driver = await this.getByTgId(tgId);
     if (!driver) {
@@ -61,7 +79,9 @@ export class DriverService {
     );
 
     if (!isValid) {
-      this.logger.warn(`Invalid state transition for driver ${tgId}: ${driver.status} -> ${newState}`);
+      this.logger.warn(
+        `Invalid state transition for driver ${tgId}: ${driver.status} -> ${newState}`,
+      );
       return false;
     }
 
@@ -77,19 +97,15 @@ export class DriverService {
     return true;
   }
 
-  async updateStatus(tgId: number, status: string) {
-    return this.prisma.driver.update({
-      where: { tgId: BigInt(tgId) },
-      data: { status },
-    });
-  }
-
-  async updateProfile(tgId: number, data: Partial<{
-    fullName: string;
-    phone: string;
-    carNumber: string;
-    carPhotoId: string;
-  }>) {
+  async updateProfile(
+    tgId: number,
+    data: Partial<{
+      fullName: string;
+      phone: string;
+      carNumber: string;
+      carPhotoId: string;
+    }>,
+  ) {
     return this.prisma.driver.update({
       where: { tgId: BigInt(tgId) },
       data,
@@ -98,25 +114,39 @@ export class DriverService {
 
   statusEmoji(status: string): string {
     switch (status) {
-      case DriverState.AVAILABLE: return '🟢';
-      case DriverState.FULL: return '🔴';
-      case DriverState.EN_ROUTE: return '🚗';
-      case DriverState.OFFLINE: return '⚫';
-      default: return '⚪';
+      case DriverState.AVAILABLE:
+        return '🟢';
+      case DriverState.FULL:
+        return '🔴';
+      case DriverState.EN_ROUTE:
+        return '🚗';
+      case DriverState.OFFLINE:
+        return '⚫';
+      default:
+        return '⚪';
     }
   }
 
   statusLabel(status: string): string {
     switch (status) {
-      case DriverState.AVAILABLE: return 'Bo\'sh';
-      case DriverState.FULL: return 'To\'la';
-      case DriverState.EN_ROUTE: return 'Yo\'lda';
-      case DriverState.OFFLINE: return 'O\'chirilgan';
-      default: return status;
+      case DriverState.AVAILABLE:
+        return "Bo'sh";
+      case DriverState.FULL:
+        return "To'la";
+      case DriverState.EN_ROUTE:
+        return "Yo'lda";
+      case DriverState.OFFLINE:
+        return "O'chirilgan";
+      default:
+        return status;
     }
   }
 
-  async updateRoute(tgId: number, fromLocation: string, toLocation: string): Promise<boolean> {
+  async updateRoute(
+    tgId: number,
+    fromLocation: string,
+    toLocation: string,
+  ): Promise<boolean> {
     const driver = await this.getByTgId(tgId);
     if (!driver) return false;
 
@@ -129,7 +159,9 @@ export class DriverService {
       },
     });
 
-    this.logger.log(`Driver ${tgId} route updated: ${fromLocation} -> ${toLocation}`);
+    this.logger.log(
+      `Driver ${tgId} route updated: ${fromLocation} -> ${toLocation}`,
+    );
     return true;
   }
 

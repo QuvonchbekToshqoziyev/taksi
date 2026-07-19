@@ -9,7 +9,6 @@ import { RideOrderService } from '../../ride-order/ride-order.service';
 import { DriverService } from '../../driver/driver.service';
 import { DriverPostService } from '../../driver-post/driver-post.service';
 import { PublicChannelService } from '../../public-channel/public-channel.service';
-import { UserClientService } from '../../user-client/user-client.service';
 import { DriverBotService } from '../services/driver-bot.service';
 import { ClientBotService } from '../services/client-bot.service';
 import { AdminBotService } from '../services/admin-bot.service';
@@ -31,7 +30,6 @@ export class DriverBotUpdate extends BotUpdateBase {
     driverService: DriverService,
     driverPostService: DriverPostService,
     publicChannelService: PublicChannelService,
-    userClientService: UserClientService,
     driverBotService: DriverBotService,
     clientBotService: ClientBotService,
     adminBotService: AdminBotService,
@@ -49,7 +47,6 @@ export class DriverBotUpdate extends BotUpdateBase {
       driverService,
       driverPostService,
       publicChannelService,
-      userClientService,
       driverBotService,
       clientBotService,
       adminBotService,
