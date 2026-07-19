@@ -20,6 +20,11 @@ done
 
 NODE_BIN="$(command -v node)"
 
+run_as_app() {
+  runuser -u "${APP_USER}" -- env HOME="${APP_DIR}" sh -c \
+    'cd "$1" && shift && exec "$@"' sh "${APP_DIR}" "$@"
+}
+
 if ! id "${APP_USER}" >/dev/null 2>&1; then
   useradd --system --home-dir "${APP_DIR}" --shell /usr/sbin/nologin "${APP_USER}"
 fi
@@ -40,11 +45,11 @@ fi
 chown "${APP_USER}:${APP_USER}" "${APP_DIR}/.env"
 chmod 600 "${APP_DIR}/.env"
 
-runuser -u "${APP_USER}" -- env HOME="${APP_DIR}" npm --prefix "${APP_DIR}" ci
-runuser -u "${APP_USER}" -- env HOME="${APP_DIR}" npm --prefix "${APP_DIR}" exec -- prisma generate --schema="${APP_DIR}/prisma/schema.prisma"
-runuser -u "${APP_USER}" -- env HOME="${APP_DIR}" npm --prefix "${APP_DIR}" exec -- prisma migrate deploy --schema="${APP_DIR}/prisma/schema.prisma"
-runuser -u "${APP_USER}" -- env HOME="${APP_DIR}" npm --prefix "${APP_DIR}" run build
-runuser -u "${APP_USER}" -- env HOME="${APP_DIR}" npm --prefix "${APP_DIR}" prune --omit=dev
+run_as_app npm ci
+run_as_app npm exec -- prisma generate --schema="${APP_DIR}/prisma/schema.prisma"
+run_as_app npm exec -- prisma migrate deploy --schema="${APP_DIR}/prisma/schema.prisma"
+run_as_app npm run build
+run_as_app npm prune --omit=dev
 
 install -m 0644 /dev/stdin /etc/systemd/system/taxi-bot.service <<EOF
 [Unit]
