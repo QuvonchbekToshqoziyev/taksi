@@ -166,6 +166,10 @@ npm run test:cov
 
 ## Deployment (PM2)
 
+For a fully isolated pre-production Telegram environment, follow
+[`docs/staging.md`](docs/staging.md). It uses a separate service, database,
+bot/userbot identities, allowed test users and allowed test chats.
+
 ### Deploy to Remote VPS
 
 ```bash

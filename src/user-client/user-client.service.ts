@@ -10,12 +10,17 @@ import { BotGateway } from '../bot/bot.gateway';
 import { RideOrderService } from '../ride-order/ride-order.service';
 import { isTaxiOrderText } from '../bot/update/order-filter.util';
 import { ClientRequestState } from '../core/state/state.types';
+import {
+  isUserbotMessageAllowed,
+  readTelegramScope,
+} from '../core/telegram/telegram-scope';
 
 @Injectable()
 export class UserClientService implements OnModuleDestroy {
   private readonly logger = new Logger(UserClientService.name);
   private client!: TelegramClient;
   private connected = false;
+  private readonly telegramScope = readTelegramScope();
 
   private readTelegramApiId(): number {
     const rawValue = process.env.TG_API_ID || process.env.API_ID || '';
@@ -134,6 +139,15 @@ export class UserClientService implements OnModuleDestroy {
 
     // Get the full chat ID in Bot API format
     const fullChatId = this.getFullChatId(peer);
+    if (
+      !isUserbotMessageAllowed(
+        String(fullChatId),
+        message.senderId?.toString() || '',
+        this.telegramScope,
+      )
+    ) {
+      return;
+    }
 
     // Only scan admin-added client intake groups.
     const isIntakeGroup = await this.targetService.isTargetGroup(

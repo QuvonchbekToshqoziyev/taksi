@@ -6,6 +6,10 @@ import { ClientBotUpdate } from './client/client-bot.update';
 import { DriverBotUpdate } from './driver/driver-bot.update';
 import { BotUpdate } from './bot.update';
 import type { SafeContext } from './update/bot-update.types';
+import {
+  isBotUpdateAllowed,
+  readTelegramScope,
+} from '../core/telegram/telegram-scope';
 
 type BotRole = 'admin' | 'client' | 'driver';
 
@@ -34,6 +38,7 @@ export async function waitForBotLaunch(
 export class BotRuntime {
   private readonly logger = new Logger(BotRuntime.name);
   private bots = new Map<BotRole, Telegraf<Context>>();
+  private readonly telegramScope = readTelegramScope();
 
   constructor(
     private readonly botGateway: BotGateway,
@@ -44,6 +49,12 @@ export class BotRuntime {
   ) {}
 
   async start() {
+    if (this.telegramScope.staging) {
+      this.logger.log(
+        `Staging Telegram scope enabled: ${this.telegramScope.allowedUserIds.size} users, ${this.telegramScope.allowedChatIds.size} chats`,
+      );
+    }
+
     const legacyToken = process.env.BOT_TOKEN;
     const dedicatedTokensConfigured = Boolean(
       process.env.ADMIN_BOT_TOKEN ||
@@ -141,6 +152,16 @@ export class BotRuntime {
     const bot = new Telegraf<Context>(token);
     bot.catch((err) => {
       this.logger.error(`${role} bot update handler error: ${String(err)}`);
+    });
+
+    bot.use((ctx, next) => {
+      if (!isBotUpdateAllowed(ctx, this.telegramScope)) {
+        this.logger.warn(
+          `Ignored out-of-scope staging update: chat=${String(ctx.chat?.id || '')} user=${String(ctx.from?.id || '')}`,
+        );
+        return;
+      }
+      return next();
     });
 
     bot.start((ctx) => update.start(ctx as SafeContext));

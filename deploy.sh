@@ -3,6 +3,7 @@ set -euo pipefail
 
 APP_DIR="${APP_DIR:-/opt/taxi-bot}"
 APP_USER="${APP_USER:-taxi-bot}"
+SERVICE_NAME="${SERVICE_NAME:-taxi-bot}"
 REPO_URL="${REPO_URL:-https://github.com/QuvonchbekToshqoziyev/taksi.git}"
 REPO_REF="${REPO_REF:-main}"
 BUILD_NODE_OPTIONS="${BUILD_NODE_OPTIONS:---max-old-space-size=384}"
@@ -11,6 +12,11 @@ SERVICE_MEMORY_MAX="${SERVICE_MEMORY_MAX:-256M}"
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "Run this script as root so it can manage the systemd service."
+  exit 1
+fi
+
+if [[ ! "${SERVICE_NAME}" =~ ^[a-zA-Z0-9_.@-]+$ ]]; then
+  echo "Invalid SERVICE_NAME: ${SERVICE_NAME}"
   exit 1
 fi
 
@@ -54,9 +60,9 @@ run_as_app npm exec -- prisma migrate deploy --schema="${APP_DIR}/prisma/schema.
 run_as_app env NODE_OPTIONS="${BUILD_NODE_OPTIONS}" npm run build
 run_as_app env NODE_OPTIONS="${BUILD_NODE_OPTIONS}" npm prune --omit=dev
 
-install -m 0644 /dev/stdin /etc/systemd/system/taxi-bot.service <<EOF
+install -m 0644 /dev/stdin "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
 [Unit]
-Description=Taxi Telegram Bot
+Description=Taxi Telegram Bot (${SERVICE_NAME})
 After=network-online.target postgresql.service
 Wants=network-online.target
 
@@ -81,6 +87,6 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable --now taxi-bot
-systemctl restart taxi-bot
-systemctl --no-pager --full status taxi-bot
+systemctl enable --now "${SERVICE_NAME}"
+systemctl restart "${SERVICE_NAME}"
+systemctl --no-pager --full status "${SERVICE_NAME}"
