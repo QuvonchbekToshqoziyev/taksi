@@ -1,7 +1,8 @@
 # Isolated Telegram staging
 
 Staging uses its own service, Linux user, database, bot, Telegram user session,
-users and groups. Production data and Telegram identities are never reused.
+users and groups. Production data and Telegram identities are never reused
+except for an explicitly allowed shared superadmin.
 
 ## Telegram setup
 
@@ -10,7 +11,9 @@ Create these test-only identities and chats:
 1. A new BotFather bot, for example `taksi_fargona_test_bot`.
 2. A dedicated Telegram user account for userbot scouting.
 3. Test admin, client and driver accounts. Put every ID in
-   `STAGING_ALLOWED_USER_IDS`; do not reuse the production superadmin account.
+   `STAGING_ALLOWED_USER_IDS`. To intentionally share only the production
+   superadmin, set `STAGING_ALLOW_PRODUCTION_SUPERADMIN=true`; other users stay
+   test-only.
 4. Four test chats:
    - **STG Mixed Requests** — clients and drivers may write; configure as `TargetGroup`.
    - **STG Priority Drivers** — private insider chat; configure as `RedirectGroup`.

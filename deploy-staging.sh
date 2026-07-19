@@ -53,8 +53,11 @@ if [[ -f "${PRODUCTION_ENV}" ]]; then
 
   production_superadmin="$(read_env "${PRODUCTION_ENV}" SUPERADMIN_TG_ID)"
   staging_users=",$(read_env "${STAGING_ENV}" STAGING_ALLOWED_USER_IDS),"
-  if [[ -n "${production_superadmin}" && "${staging_users// /}" == *",${production_superadmin},"* ]]; then
-    echo "Staging test users must not include the production superadmin."
+  allow_shared_superadmin="$(read_env "${STAGING_ENV}" STAGING_ALLOW_PRODUCTION_SUPERADMIN)"
+  if [[ -n "${production_superadmin}" && \
+        "${staging_users// /}" == *",${production_superadmin},"* && \
+        "${allow_shared_superadmin}" != "true" ]]; then
+    echo "Production superadmin reuse requires STAGING_ALLOW_PRODUCTION_SUPERADMIN=true."
     exit 1
   fi
 
